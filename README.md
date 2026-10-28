@@ -40,6 +40,32 @@ npm run contracts:check    # fails if the committed files are stale (also part o
 
 The engine validates request bodies with the same schemas (invalid → HTTP 400). Never edit the generated files.
 
+## Engine API (`engine serve`)
+
+The macOS app launches the engine as a child process and talks to it over HTTP on loopback:
+
+```
+npm run serve                      # = packages/engine/src/bin.ts serve [--port N] [--exit-on-stdin-close]
+```
+
+- **Startup:** the engine prints ONE line on stdout, `{"port":51234,"token":"…","apiVersion":1}` (`EngineReady`); logs go to stderr. Token = `$JOBPILOT_TOKEN` or random. With `--exit-on-stdin-close` it quits when the app (owner of its stdin) exits.
+- **Auth:** every request needs `Authorization: Bearer <token>`. Binds `127.0.0.1` only.
+- **Routes** (payloads are the contracts in `packages/contracts/src`):
+
+| | |
+|---|---|
+| `GET /api/info` | version, home, key presence, candidate country, job-Chrome reachable |
+| `GET /api/apps` · `GET /api/eligible-jobs` | prepared applications · jobs from the last search (+ application status) |
+| `POST /api/apply/:id` · `/api/answers/:id` · `/api/status/:id` | fill in Chrome · save edited answers · set status |
+| `GET /resume/:id` | tailored resume (.docx) |
+| `GET /api/jobs` · `POST /api/jobs` `{task, limit?}` | pipeline runs; tasks: `search verify enrich prepare fill chrome`; one running job per task (409) |
+| `GET /api/jobs/:id` · `POST /api/jobs/:id/cancel` | status · stop (SIGINT, then SIGKILL after 5 s) |
+| `GET /api/jobs/:id/events` | Server-Sent Events: replay + live lines, ends with the final status; resume with `Last-Event-ID` |
+| `GET /api/knowledge` · `GET`/`PUT /api/knowledge/file?path=` | read/write the markdown the agents use (`.md`/`.txt`, inside `knowledge/`, ≤ 1 MB) |
+
+`npm run dashboard` still starts the old dev dashboard (no token, port 4000, same routes).
+Jobs run the existing scripts as child processes with the engine's own node flags and env.
+
 ## Candidate location
 
 Geo filtering uses `CANDIDATE_COUNTRY` / `CANDIDATE_CITY` (see `.env.local.example`). Your own country is never treated as restricted;
@@ -64,6 +90,7 @@ npm run prepare-jobs        per new job (headless): find form → tailor resume 
 npm run chrome              Chrome with remote debugging (profile ~/.chrome-jobs) — log in to sites once
 npm run fill [-- --limit N] open ready jobs as filled tabs in that Chrome; you review + submit
 npm run dashboard           http://localhost:4000 — review/edit answers, click Apply, edits are learned
+npm run serve               engine HTTP API for the Mac app (see Engine API)
 # dev
 npm test  ·  npm run typecheck
 ```
@@ -120,7 +147,8 @@ packages/
         tailor/                       resume tailor workflow (+ tailor.ts: wrapper for the apply agent)
       browser/   session.ts  apply-page.ts  form.ts  submit.ts
       agent/     knowledge.ts  memory.ts  answer.ts  prepare.ts  apply.ts  fill.ts
-      server/    server.ts  page.ts
+      server/    server.ts (startServer) routes.ts jobs.ts knowledge.ts http.ts page.ts
+      bin.ts                          `engine serve` entry
   contracts/  (@jobpilot/contracts)   zod schemas → schema/*.json → Swift (apps/macos/.../Contracts.swift)
 scripts/                              run-pipeline.sh
 knowledge/  data/  .env.local         your personal data (or under $JOBPILOT_HOME) — gitignored, only *.example files are tracked

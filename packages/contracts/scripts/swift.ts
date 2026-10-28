@@ -9,11 +9,13 @@ type Schema = {
   additionalProperties?: boolean | Schema;
   items?: Schema;
   $ref?: string;
+  allOf?: Schema[];
   description?: string;
 } & Record<string, unknown>;
 
-const IGNORED = new Set(["$schema", "$id", "description", "propertyNames"]);
-const KNOWN = new Set([...IGNORED, "type", "enum", "properties", "required", "additionalProperties", "items", "$ref"]);
+// Validation-only keywords: they don't change the Swift shape.
+const IGNORED = new Set(["$schema", "$id", "description", "propertyNames", "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "minLength", "maxLength", "minItems", "maxItems"]);
+const KNOWN = new Set([...IGNORED, "type", "enum", "properties", "required", "additionalProperties", "items", "$ref", "allOf"]);
 const RESERVED = new Set(["default", "self", "Self", "class", "struct", "enum", "protocol", "extension", "func", "var", "let", "in", "is", "as", "init", "operator", "subscript", "import", "return", "switch", "case", "static", "super", "where", "for", "while", "if", "else", "do", "try", "throw", "true", "false", "nil", "Type", "Protocol", "Any"]);
 
 const ident = (s: string) => (RESERVED.has(s) ? `\`${s}\`` : s);
@@ -33,6 +35,11 @@ function check(name: string, s: Schema) {
 
 function swiftType(where: string, s: Schema): string {
   check(where, s);
+  // zod (draft-7) wraps a $ref that has sibling keywords as { allOf: [{ $ref }] }
+  if (s.allOf) {
+    if (s.allOf.length !== 1 || Object.keys(s).some((k) => k !== "allOf" && !IGNORED.has(k))) throw new Error(`${where}: unsupported allOf`);
+    return swiftType(where, s.allOf[0]!);
+  }
   if (s.$ref) return refName(s.$ref);
   if (s.enum) throw new Error(`${where}: inline enum — register it with def("Name", z.enum(...))`);
   switch (s.type) {

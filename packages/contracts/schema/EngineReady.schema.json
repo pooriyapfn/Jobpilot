@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "EngineReady.schema.json",
+  "type": "object",
+  "properties": {
+    "port": {
+      "type": "integer",
+      "minimum": -9007199254740991,
+      "maximum": 9007199254740991
+    },
+    "token": {
+      "type": "string"
+    },
+    "apiVersion": {
+      "type": "integer",
+      "minimum": -9007199254740991,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "port",
+    "token",
+    "apiVersion"
+  ],
+  "additionalProperties": false
+}

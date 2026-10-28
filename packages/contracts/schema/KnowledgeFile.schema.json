@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "KnowledgeFile.schema.json",
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string"
+    },
+    "size": {
+      "type": "integer",
+      "minimum": -9007199254740991,
+      "maximum": 9007199254740991
+    },
+    "modifiedAt": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "path",
+    "size",
+    "modifiedAt"
+  ],
+  "additionalProperties": false
+}

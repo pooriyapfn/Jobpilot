@@ -41,6 +41,30 @@ struct ApplicationSummary: Codable, Hashable, Sendable, Identifiable {
     var updatedAt: String
 }
 
+struct EligibleJob: Codable, Hashable, Sendable, Identifiable {
+    var id: String
+    var url: String
+    var title: String
+    var company: String
+    var applicationStatus: Status?
+}
+
+struct EngineInfo: Codable, Hashable, Sendable {
+    var apiVersion: Int
+    var version: String
+    var home: String
+    var hasOpenrouterKey: Bool
+    var hasBraveKey: Bool
+    var candidateCountry: String?
+    var chromeReachable: Bool
+}
+
+struct EngineReady: Codable, Hashable, Sendable {
+    var port: Int
+    var token: String
+    var apiVersion: Int
+}
+
 struct ErrorResponse: Codable, Hashable, Sendable {
     var error: String
 }
@@ -63,6 +87,61 @@ struct FormField: Codable, Hashable, Sendable, Identifiable {
     var options: [String]?
 }
 
+struct JobEvent: Codable, Hashable, Sendable {
+    var seq: Int
+    var ts: String
+    var kind: JobEventKind
+    var text: String
+    var stream: JobStream?
+    var status: JobStatus?
+}
+
+enum JobEventKind: String, Codable, Hashable, Sendable, CaseIterable {
+    case log
+    case status
+}
+
+struct JobInfo: Codable, Hashable, Sendable, Identifiable {
+    var id: String
+    var task: JobTask
+    var status: JobStatus
+    var startedAt: String
+    var endedAt: String?
+    var exitCode: Int?
+}
+
+enum JobStatus: String, Codable, Hashable, Sendable, CaseIterable {
+    case running
+    case succeeded
+    case failed
+    case cancelled
+}
+
+enum JobStream: String, Codable, Hashable, Sendable, CaseIterable {
+    case stdout
+    case stderr
+}
+
+enum JobTask: String, Codable, Hashable, Sendable, CaseIterable {
+    case search
+    case verify
+    case enrich
+    case prepare
+    case fill
+    case chrome
+}
+
+struct KnowledgeDocument: Codable, Hashable, Sendable {
+    var path: String
+    var content: String
+}
+
+struct KnowledgeFile: Codable, Hashable, Sendable {
+    var path: String
+    var size: Int
+    var modifiedAt: String
+}
+
 struct OkResponse: Codable, Hashable, Sendable {
     var ok: Bool
 }
@@ -71,8 +150,17 @@ struct SaveAnswersRequest: Codable, Hashable, Sendable {
     var answers: [String: String]
 }
 
+struct SaveKnowledgeRequest: Codable, Hashable, Sendable {
+    var content: String
+}
+
 struct SetStatusRequest: Codable, Hashable, Sendable {
     var status: Status
+}
+
+struct StartJobRequest: Codable, Hashable, Sendable {
+    var task: JobTask
+    var limit: Int?
 }
 
 enum Status: String, Codable, Hashable, Sendable, CaseIterable {
