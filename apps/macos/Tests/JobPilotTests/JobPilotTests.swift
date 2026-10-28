@@ -85,6 +85,29 @@ struct DraftTests {
     }
 }
 
+@Suite("LineReader")
+struct LineReaderTests {
+    @Test func splitsLinesAcrossChunksAndFlushesTheRest() {
+        let buffer = LineReader.Buffer()
+        #expect(buffer.append(Data("one\ntw".utf8)) == ["one"])
+        #expect(buffer.append(Data("o\nthree\n".utf8)) == ["two", "three"])
+        #expect(buffer.append(Data("tail".utf8)) == [])
+        #expect(buffer.flush() == "tail")
+        #expect(buffer.flush() == nil)
+    }
+
+    @Test func deliversAShortLineWithoutWaitingForMoreOutput() async throws {
+        // Regression: AsyncBytes held the engine's one-line ready message back until the pipe closed.
+        let pipe = Pipe()
+        let line = await withCheckedContinuation { (cont: CheckedContinuation<String, Never>) in
+            LineReader.attach(to: pipe.fileHandleForReading) { cont.resume(returning: $0) } onEnd: {}
+            pipe.fileHandleForWriting.write(Data("{\"ready\":true}\n".utf8)) // pipe stays open
+        }
+        #expect(line == "{\"ready\":true}")
+        try pipe.fileHandleForWriting.close()
+    }
+}
+
 // MARK: the real engine
 
 private func engineAvailable() -> Bool {
