@@ -1,0 +1,42 @@
+{
+  "name": "apply-agent",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "npm run -s cli",
+    "cli": "node --experimental-strip-types --disable-warning=ExperimentalWarning --env-file=.env.local src/cli/index.ts",
+
+    "search": "node --experimental-strip-types --disable-warning=ExperimentalWarning --env-file=.env.local src/tools/job-search/index.ts",
+    "verify": "node --experimental-strip-types --disable-warning=ExperimentalWarning --env-file=.env.local src/tools/job-search/verify.ts",
+    "enrich": "node --experimental-strip-types --disable-warning=ExperimentalWarning --env-file=.env.local src/tools/job-search/enrich.ts",
+    "report": "node --experimental-strip-types --disable-warning=ExperimentalWarning --env-file=.env.local src/tools/job-search/report.ts",
+    "jobs-dashboard": "node --experimental-strip-types --disable-warning=ExperimentalWarning --env-file=.env.local src/tools/job-search/dashboard.ts",
+    "tailor-batch": "node --experimental-strip-types --disable-warning=ExperimentalWarning --env-file=.env.local src/tools/job-search/tailor-batch.ts",
+    "setup-scheduler": "node --experimental-strip-types --disable-warning=ExperimentalWarning src/tools/job-search/setup-scheduler.ts",
+    "unschedule": "node --experimental-strip-types --disable-warning=ExperimentalWarning src/tools/job-search/teardown-scheduler.ts",
+
+    "tailor": "node --experimental-strip-types --disable-warning=ExperimentalWarning --env-file=.env.local src/tools/tailor/runner.ts",
+
+    "chrome": "node --experimental-strip-types --disable-warning=ExperimentalWarning src/browser/session.ts",
+    "prepare-jobs": "node --experimental-strip-types --disable-warning=ExperimentalWarning --env-file=.env.local src/agent/prepare.ts",
+    "fill": "node --experimental-strip-types --disable-warning=ExperimentalWarning --env-file=.env.local src/agent/fill.ts",
+    "dashboard": "node --experimental-strip-types --disable-warning=ExperimentalWarning --env-file=.env.local src/server/server.ts",
+
+    "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test src/tools/job-search/tests/pipeline.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@inquirer/select": "^5.2.5",
+    "@openrouter/sdk": "^1.2.64",
+    "better-sqlite3": "^9.4.3",
+    "chalk": "^5.6.2",
+    "docx": "^9.7.1",
+    "playwright": "1.64.1",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.8",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0"
+  }
+}

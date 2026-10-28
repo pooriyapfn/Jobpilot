@@ -1,0 +1,15 @@
+node_modules/
+.DS_Store
+
+# secrets
+.env
+.env.local
+
+# personal data — never commit (real copies live in ~/Library/Application Support/JobPilot)
+data/
+profile.json
+knowledge/**/*.md
+knowledge/notes/
+!knowledge/**/*.example.md
+.claude/
+*.db
