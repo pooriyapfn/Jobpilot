@@ -1,0 +1,71 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "Application.schema.json",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "url": {
+      "type": "string"
+    },
+    "applyUrl": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "company": {
+      "type": "string"
+    },
+    "jd": {
+      "type": "string"
+    },
+    "status": {
+      "$ref": "Status.schema.json"
+    },
+    "fit": {
+      "type": "string"
+    },
+    "atsScore": {
+      "type": "number"
+    },
+    "resumePath": {
+      "type": "string"
+    },
+    "fields": {
+      "type": "array",
+      "items": {
+        "$ref": "FormField.schema.json"
+      }
+    },
+    "answers": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "$ref": "Answer.schema.json"
+      }
+    },
+    "note": {
+      "type": "string"
+    },
+    "updatedAt": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "url",
+    "applyUrl",
+    "title",
+    "company",
+    "jd",
+    "status",
+    "fields",
+    "answers",
+    "updatedAt"
+  ],
+  "additionalProperties": false
+}

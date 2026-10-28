@@ -11,6 +11,6 @@
     "allowImportingTsExtensions": true,
     "esModuleInterop": true
   },
-  "include": ["apps/*/src/**/*.ts", "packages/*/src/**/*.ts", "packages/*/agents.config.ts"],
+  "include": ["apps/*/src/**/*.ts", "packages/*/src/**/*.ts", "packages/*/scripts/**/*.ts", "packages/*/test/**/*.ts", "packages/*/agents.config.ts"],
   "exclude": ["packages/engine/src/tools/job-search/tests/**"]
 }

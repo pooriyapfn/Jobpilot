@@ -22,7 +22,9 @@
     "prepare-jobs": "node --experimental-strip-types --disable-warning=ExperimentalWarning --env-file-if-exists=\"${JOBPILOT_HOME:-.}/.env.local\" packages/engine/src/agent/prepare.ts",
     "fill": "node --experimental-strip-types --disable-warning=ExperimentalWarning --env-file-if-exists=\"${JOBPILOT_HOME:-.}/.env.local\" packages/engine/src/agent/fill.ts",
     "dashboard": "node --experimental-strip-types --disable-warning=ExperimentalWarning --env-file-if-exists=\"${JOBPILOT_HOME:-.}/.env.local\" packages/engine/src/server/server.ts",
-    "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test packages/engine/src/tools/job-search/tests/pipeline.test.ts",
+    "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test packages/engine/src/tools/job-search/tests/pipeline.test.ts packages/contracts/test/contracts.test.ts",
+    "contracts": "node --experimental-strip-types --disable-warning=ExperimentalWarning packages/contracts/scripts/generate.ts",
+    "contracts:check": "node --experimental-strip-types --disable-warning=ExperimentalWarning packages/contracts/scripts/generate.ts --check",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

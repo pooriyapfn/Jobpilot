@@ -28,6 +28,23 @@ npm start
 
 The `setup-scheduler` launchd job records the value too. Code always runs from the repo checkout; only data moves.
 
+## Contracts (engine ↔ macOS app)
+
+The types that cross the boundary (Application, FormField, Answer, Status, API request/response bodies) are zod schemas in `packages/contracts/src`.
+Register a new one with `def("Name", z.object(...))`, then:
+
+```
+npm run contracts          # writes packages/contracts/schema/*.json and apps/macos/JobPilot/Contracts/Generated/Contracts.swift
+npm run contracts:check    # fails if the committed files are stale (also part of npm test)
+```
+
+The engine validates request bodies with the same schemas (invalid → HTTP 400). Never edit the generated files.
+
+## Candidate location
+
+Geo filtering uses `CANDIDATE_COUNTRY` / `CANDIDATE_CITY` (see `.env.local.example`). Your own country is never treated as restricted;
+jobs naming it count as eligible. `EMEA` is always treated as open.
+
 ## Commands
 
 ```
@@ -92,7 +109,7 @@ npm workspaces monorepo. All npm scripts run from the repo root.
 ```
 apps/
   cli/        src/index.ts            interactive menu (@jobpilot/cli)
-  macos/                              SwiftUI app (planned)
+  macos/                              SwiftUI app (planned); JobPilot/Contracts/Generated/ is generated
 packages/
   engine/     (@jobpilot/engine)
     agents.config.ts                  LLM model per agent
@@ -104,7 +121,7 @@ packages/
       browser/   session.ts  apply-page.ts  form.ts  submit.ts
       agent/     knowledge.ts  memory.ts  answer.ts  prepare.ts  apply.ts  fill.ts
       server/    server.ts  page.ts
-  contracts/                          shared schemas (planned)
+  contracts/  (@jobpilot/contracts)   zod schemas → schema/*.json → Swift (apps/macos/.../Contracts.swift)
 scripts/                              run-pipeline.sh
 knowledge/  data/  .env.local         your personal data (or under $JOBPILOT_HOME) — gitignored, only *.example files are tracked
 ```
