@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   classifyFreshness,
@@ -189,6 +189,28 @@ describe("classifyWorkMode", () => {
 // ── classifyGeographicScope ─────────────────────────────────────────────────
 
 describe("classifyGeographicScope", () => {
+  const saved = process.env.CANDIDATE_COUNTRY;
+  before(() => { process.env.CANDIDATE_COUNTRY = "Turkey"; });
+  after(() => { saved === undefined ? delete process.env.CANDIDATE_COUNTRY : (process.env.CANDIDATE_COUNTRY = saved); });
+
+  it("accepts the Türkiye spelling for a Turkey candidate", () => {
+    assert.equal(classifyGeographicScope(["Ankara, Türkiye"], "", "", "Engineer").scope, "home");
+  });
+
+  it("without a candidate country nothing is 'home'", () => {
+    delete process.env.CANDIDATE_COUNTRY;
+    assert.equal(classifyGeographicScope(["Istanbul, Turkey"], "", "", "Engineer").scope, "unknown");
+    process.env.CANDIDATE_COUNTRY = "Turkey";
+  });
+
+  it("the candidate's own country is not a restricted country", () => {
+    process.env.CANDIDATE_COUNTRY = "India";
+    const r = classifyGeographicScope(["Remote - India"], "", "", "Engineer");
+    process.env.CANDIDATE_COUNTRY = "Turkey";
+    assert.equal(r.scope, "home");
+    assert.equal(classifyGeographicScope(["Remote - India"], "", "", "Engineer").scope, "specific-country");
+  });
+
   it("argentina-remote: detects country-specific remote", () => {
     const result = classifyGeographicScope(
       ["Argentina Remote"],
@@ -259,14 +281,14 @@ describe("classifyGeographicScope", () => {
     assert.equal(result.scope, "emea");
   });
 
-  it("detects Turkey in location", () => {
+  it("detects the candidate's own country in location", () => {
     const result = classifyGeographicScope(
       ["Istanbul, Turkey"],
       "",
       "",
       "Engineer"
     );
-    assert.equal(result.scope, "turkey");
+    assert.equal(result.scope, "home");
   });
 
   it("detects authorization requirement", () => {
@@ -464,9 +486,9 @@ describe("classifyVerificationOutcome", () => {
     );
   });
 
-  it("turkey scope → verified-fresh", () => {
+  it("home scope → verified-fresh", () => {
     assert.equal(
-      classifyVerificationOutcome(makeVerifiedJob({ geographicScope: "turkey" })),
+      classifyVerificationOutcome(makeVerifiedJob({ geographicScope: "home" })),
       "verified-fresh"
     );
   });

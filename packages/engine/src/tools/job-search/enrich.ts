@@ -8,12 +8,18 @@ import { OUTPUT_DIR } from "./paths.ts";
 
 const DB_PATH = process.env["DB_PATH"] ?? `${OUTPUT_DIR}jobs.db`;
 const ELIGIBILITY_THRESHOLD = 0.85;
-const ELIGIBLE_SCOPES = new Set(["turkey", "worldwide", "emea"]);
+const ELIGIBLE_SCOPES = new Set(["home", "worldwide", "emea"]);
 
 async function readJobFile(name: string): Promise<VerifiedJob[]> {
   try {
     const raw = await readFile(`${OUTPUT_DIR}${name}`, "utf8");
-    return JSON.parse(raw) as VerifiedJob[];
+    // Files written before the "turkey" → "home" rename
+    return (JSON.parse(raw) as VerifiedJob[]).map((j) => {
+      const legacy = j as unknown as { geographicScope?: string; locationEligibility?: string };
+      if (legacy.geographicScope === "turkey") legacy.geographicScope = "home";
+      if (legacy.locationEligibility === "turkey-ok") legacy.locationEligibility = "home-ok";
+      return j;
+    });
   } catch {
     return [];
   }

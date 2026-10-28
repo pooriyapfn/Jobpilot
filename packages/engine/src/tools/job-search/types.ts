@@ -23,7 +23,7 @@ export type Freshness =
   | "date-unknown"; // datePosted absent or unparseable
 
 export type LocationEligibility =
-  | "turkey-ok"  // Turkey explicitly mentioned positively
+  | "home-ok"    // candidate's own country explicitly mentioned (CANDIDATE_COUNTRY)
   | "eligible"   // Strong positive: worldwide / anywhere / global / EMEA
   | "uncertain"  // No location signals — goes to LLM
   | "restricted"; // US/Canada/UK/India/specific country only
@@ -44,7 +44,7 @@ export type EvidenceSource =
   | "llm";
 
 export type GeographicScope =
-  | "turkey"
+  | "home"       // candidate's own country (CANDIDATE_COUNTRY)
   | "worldwide"
   | "emea"
   | "specific-country"

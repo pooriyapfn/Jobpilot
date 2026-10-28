@@ -18,7 +18,7 @@ export const agents = {
   },
 
   // Job search (src/tools/job-search/eligibility.ts) — classifies whether
-  // uncertain-location jobs are open to Turkey. High volume → fast model.
+  // uncertain-location jobs are open to the candidate's country (CANDIDATE_COUNTRY). High volume → fast model.
   eligibility: env.ELIGIBILITY_MODEL ?? env.OPENROUTER_FAST_MODEL ?? "anthropic/claude-haiku-4.5",
 
   // Apply agent (src/agent/answer.ts) — answers application form fields.

@@ -244,7 +244,7 @@ export function toSourceJobs(jobs: BoardJob[], company: string, sourceTag: strin
     const geo = classifyGeographicScope([j.location], j.location, "", j.title);
     if (geo.scope === "specific-country") continue;
     // "Remote" + an unrecognised place ("Korea", "Toronto; Ottawa") = remote within that place.
-    // Keep only bare "Remote" or an explicit open scope (worldwide / EMEA / Turkey).
+    // Keep only bare "Remote" or an explicit open scope (worldwide / EMEA / candidate's country).
     const bare = j.location.replace(/remote|hybrid|anywhere|[;,()\-|/]/gi, "").trim();
     if (geo.scope === "unknown" && bare && !/^(europe|emea|global|worldwide)$/i.test(bare)) continue;
 

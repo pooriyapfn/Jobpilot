@@ -35,7 +35,8 @@ function scoreColor(score: number | null): string {
 function eligibilityBadge(status: string | null, llmStatus: string | null): string {
   const s = status ?? llmStatus ?? "unknown";
   const colors: Record<string, string> = {
-    "turkey-ok": "#22c55e",
+    "home-ok": "#22c55e",
+    "turkey-ok": "#22c55e", // rows written before the rename
     "eligible": "#86efac",
     "uncertain": "#fb923c",
     "restricted": "#f87171",

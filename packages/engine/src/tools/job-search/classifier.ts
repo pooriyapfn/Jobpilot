@@ -1,3 +1,4 @@
+import { candidate, escapeRe } from "./candidate.ts";
 import { ATS_DOMAINS } from "./config.ts";
 import type {
   Freshness,
@@ -194,18 +195,6 @@ const RESTRICTED_COUNTRIES = [
   "Greece",
 ];
 
-// Build a single regex from the country list. Sort by length desc to match longer names first.
-const COUNTRY_RE = new RegExp(
-  "\\b(" +
-    [...RESTRICTED_COUNTRIES]
-      .sort((a, b) => b.length - a.length)
-      .map((c) => c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-      .join("|") +
-    ")\\b",
-  "i"
-);
-
-const TURKEY_PATTERNS = [/\bTurkey\b/i, /\bT[uü]rkiye\b/i];
 const WORLDWIDE_PATTERNS = [/\bworldwide\b/i, /\banywhere\b/i, /\bglobal\b/i];
 // Safe to evaluate against full body text after all restriction checks. These
 // require job-level eligibility wording; a generic "global team" is excluded.
@@ -226,26 +215,21 @@ const AUTHORIZATION_PHRASES = [
   /\bno\s+visa\s+sponsor/i,
 ];
 
-// "Remote (Country)", "Remote - Country", "Remote, Country", "Country Remote"
-const REMOTE_COUNTRY_PATTERN = new RegExp(
-  "\\bremote\\s*[,(\\-]\\s*(" +
-    [...RESTRICTED_COUNTRIES]
-      .sort((a, b) => b.length - a.length)
-      .map((c) => c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-      .join("|") +
-    ")\\s*\\)?\\b",
-  "i"
-);
-
-const COUNTRY_REMOTE_PATTERN = new RegExp(
-  "\\b(" +
-    [...RESTRICTED_COUNTRIES]
-      .sort((a, b) => b.length - a.length)
-      .map((c) => c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-      .join("|") +
-    ")\\s+remote\\b",
-  "i"
-);
+// Restricted-country regexes. The candidate's own country is never "restricted".
+function countryRegexes() {
+  const own = candidate().names.map((n) => n.toLowerCase());
+  const alt = RESTRICTED_COUNTRIES.filter((c) => !own.includes(c.toLowerCase()))
+    .sort((a, b) => b.length - a.length) // longer names first
+    .map(escapeRe)
+    .join("|");
+  return {
+    countryRe: new RegExp(`\\b(${alt})\\b`, "i"),
+    // "Remote (Country)", "Remote - Country", "Remote, Country"
+    remoteCountry: new RegExp(`\\bremote\\s*[,(\\-]\\s*(${alt})\\s*\\)?\\b`, "i"),
+    // "Country Remote"
+    countryRemote: new RegExp(`\\b(${alt})\\s+remote\\b`, "i"),
+  };
+}
 
 const RESTRICTION_PHRASES = [
   /\bUS[A]? only\b/i,
@@ -286,6 +270,7 @@ export function classifyGeographicScope(
   title: string
 ): { scope: GeographicScope; restrictedCountry?: string; evidence: string[] } {
   const evidence: string[] = [];
+  const { countryRe, remoteCountry, countryRemote } = countryRegexes();
   const locStr = jobLocation.join(" ");
 
   // Location strings including title — used for restriction checks (title can contain
@@ -318,7 +303,7 @@ export function classifyGeographicScope(
   }
 
   // 3. "Remote (Country)", "Remote - Country", "Remote, Country" in location+title
-  const remoteCountryMatch = REMOTE_COUNTRY_PATTERN.exec(locationStrings);
+  const remoteCountryMatch = remoteCountry.exec(locationStrings);
   if (remoteCountryMatch) {
     const country = remoteCountryMatch[1]!;
     evidence.push(`remote+country pattern: "${remoteCountryMatch[0]}"`);
@@ -326,7 +311,7 @@ export function classifyGeographicScope(
   }
 
   // 4. "Country Remote" in location+title
-  const countryRemoteMatch = COUNTRY_REMOTE_PATTERN.exec(locationStrings);
+  const countryRemoteMatch = countryRemote.exec(locationStrings);
   if (countryRemoteMatch) {
     const country = countryRemoteMatch[1]!;
     evidence.push(`country+remote pattern: "${countryRemoteMatch[0]}"`);
@@ -335,10 +320,10 @@ export function classifyGeographicScope(
 
   // 5. Structural: every jobLocation entry matches a restricted country
   if (jobLocation.length > 0) {
-    const allRestricted = jobLocation.every((loc) => COUNTRY_RE.test(loc));
+    const allRestricted = jobLocation.every((loc) => countryRe.test(loc));
     if (allRestricted) {
       const matched = jobLocation.map((loc) => {
-        const m = COUNTRY_RE.exec(loc);
+        const m = countryRe.exec(loc);
         return m ? m[1] : loc;
       });
       evidence.push(`all locations restricted: ${matched.join(", ")}`);
@@ -347,8 +332,8 @@ export function classifyGeographicScope(
   }
 
   // 6. Displayed location contains a restricted country
-  if (displayedLocation && COUNTRY_RE.test(displayedLocation)) {
-    const m = COUNTRY_RE.exec(displayedLocation);
+  if (displayedLocation && countryRe.test(displayedLocation)) {
+    const m = countryRe.exec(displayedLocation);
     if (m) {
       evidence.push(`displayed location has restricted country: ${m[1]}`);
       return { scope: "specific-country", restrictedCountry: m[1], evidence };
@@ -359,12 +344,11 @@ export function classifyGeographicScope(
   // Checked against openScopeStrings (no title) to avoid false positives like
   // "Global Software Engineer" overriding a US-only job location.
 
-  // 7. Turkey in location strings (title included — Turkey in title is meaningful)
-  for (const pat of TURKEY_PATTERNS) {
-    if (pat.test(locationStrings)) {
-      evidence.push(`Turkey in location: ${pat.source}`);
-      return { scope: "turkey", evidence };
-    }
+  // 7. Candidate's own country in location strings (title included — it's meaningful there)
+  const home = candidate().names.find((n) => new RegExp(`\\b${escapeRe(n)}\\b`, "i").test(locationStrings));
+  if (home) {
+    evidence.push(`home country in location: ${home}`);
+    return { scope: "home", evidence };
   }
 
   // Strong job-level worldwide statements may live in the description rather
@@ -407,8 +391,8 @@ export function classifyGeographicScope(
  */
 export function scopeToLocationEligibility(scope: GeographicScope): LocationEligibility {
   switch (scope) {
-    case "turkey":
-      return "turkey-ok";
+    case "home":
+      return "home-ok";
     case "worldwide":
     case "emea":
       return "eligible";

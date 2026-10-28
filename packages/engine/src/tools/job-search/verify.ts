@@ -32,7 +32,7 @@ const FETCH_TIMEOUT_MS = 10_000;
 
 export type VerificationOutcome = "verified-fresh" | "needs-date" | "uncertain" | "rejected";
 
-const ELIGIBLE_SCOPES = new Set<GeographicScope>(["turkey", "worldwide", "emea"]);
+const ELIGIBLE_SCOPES = new Set<GeographicScope>(["home", "worldwide", "emea"]);
 
 /**
  * Pure function: classify a VerifiedJob into its output bucket.
@@ -51,7 +51,7 @@ export function classifyVerificationOutcome(job: VerifiedJob): VerificationOutco
   if (job.geographicScope === "specific-country") return "rejected";
   // Unknown geography → send to LLM for evaluation
   if (!job.geographicScope || job.geographicScope === "unknown") return "uncertain";
-  // Eligible scope: turkey / worldwide / emea
+  // Eligible scope: home / worldwide / emea
   if (!ELIGIBLE_SCOPES.has(job.geographicScope)) return "rejected";
   if (job.freshness === "verified-24h" || job.freshness === "verified-week") return "verified-fresh";
   if (job.freshness === "date-unknown") return "needs-date";

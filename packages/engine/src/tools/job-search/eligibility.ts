@@ -1,10 +1,18 @@
 import { agents } from "../../../agents.config.ts";
+import { candidate } from "./candidate.ts";
 import type { EligibilityResult, VerifiedJob } from "./types.ts";
 
 const BATCH_SIZE = 3;
 const BATCH_DELAY_MS = 3_000;
 
-const SYSTEM_PROMPT = `You are a strict job eligibility classifier. The candidate is a senior software/AI engineer in Istanbul, Turkey. They cannot relocate and have no work authorization outside Turkey — they need EOR or contractor arrangements.
+const buildSystemPrompt = (): string => {
+  const { country, city } = candidate();
+  const where = country ? [city, country].filter(Boolean).join(", ") : undefined;
+  const who = where
+    ? `The candidate is a senior software/AI engineer in ${where}. They cannot relocate and have no work authorization outside ${country} — they need EOR or contractor arrangements.`
+    : "The candidate is a senior software/AI engineer working remotely. They cannot relocate and have no work authorization abroad — they need EOR or contractor arrangements.";
+  const home = country ?? "the candidate's country";
+  return `You are a strict job eligibility classifier. ${who}
 
 IMPORTANT: Apply a FAIL-CLOSED approach. Missing restriction is NOT evidence of eligibility.
 
@@ -12,12 +20,12 @@ RESTRICTED — mark if any of these appear:
 - Explicit country requirement: "Remote - US", "Remote (India)", "Brazil only", "must be based in Austria", "[country] only"
 - Authorization requirement: "authorized to work in the US/UK/EU", "work authorization", "security clearance"
 - Physical presence required: "on-site", "primarily on-site", "must relocate", "in-office", "hybrid"
-- Location restricted to specific non-Turkey country or region (US, UK, EU, Canada, India, Brazil, LATAM, APAC, etc.)
+- Location restricted to specific non-${home} country or region (US, UK, EU, Canada, India, Brazil, LATAM, APAC, etc.)
 - Any phrasing meaning "you must live in [specific country]"
 
 ELIGIBLE — mark ONLY if:
 - Explicitly worldwide, global, anywhere, or "work from anywhere"
-- Explicitly Turkey-inclusive (EMEA without Turkey exclusion, or Turkey/Turkiye mentioned)
+- Explicitly ${home}-inclusive (a region that clearly includes ${home} without excluding it, or ${home} mentioned)
 - The job listing explicitly states broad geographic eligibility
 
 UNCERTAIN — mark if:
@@ -28,6 +36,7 @@ UNCERTAIN — mark if:
 Confidence: use 0.9+ for clear cases, 0.6-0.8 for ambiguous.
 Clamp confidence to range [0.0, 1.0].
 Return ONLY valid JSON: {"status":"eligible"|"restricted"|"uncertain","evidence":"<one sentence>","confidence":0.0-1.0}`;
+};
 
 export async function checkEligibility(
   job: VerifiedJob,
@@ -60,7 +69,7 @@ export async function checkEligibility(
     body: JSON.stringify({
       model,
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: buildSystemPrompt() },
         { role: "user", content: userContent },
       ],
       temperature: 0,
