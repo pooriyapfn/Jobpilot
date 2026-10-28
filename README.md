@@ -1,11 +1,11 @@
-# Apply Agent
+# JobPilot
 
 Finds remote jobs, tailors a resume per job, prepares application answers, then fills each form in **your** Chrome. You always press Submit yourself.
 
 One project, three tools:
-- **job-search** (`src/tools/job-search`) — Brave + job boards → verify → eligibility → `data/job-search/eligible-jobs.json`
-- **tailor** (`src/tools/tailor`) — `runResumeTailor` (fit gate + tailored resume + ATS loop) and the OpenRouter LLM client
-- **apply** (`src/agent`, `src/browser`, `src/server`) — prepare, fill, dashboard, learning memory
+- **job-search** (`packages/engine/src/tools/job-search`) — Brave + job boards → verify → eligibility → `data/job-search/eligible-jobs.json`
+- **tailor** (`packages/engine/src/tools/tailor`) — `runResumeTailor` (fit gate + tailored resume + ATS loop) and the OpenRouter LLM client
+- **apply** (`packages/engine/src/{agent,browser,server}`) — prepare, fill, dashboard, learning memory
 
 ## Quick start
 
@@ -13,7 +13,7 @@ One project, three tools:
 npm install
 cp .env.local.example .env.local                                             # OPENROUTER_API_KEY, BRAVE_API_KEY
 for f in knowledge/*.example.md knowledge/resume/*.example.md; do cp -n "$f" "${f%.example.md}.md"; done   # then edit
-npm start                                                                    # interactive CLI (src/cli)
+npm start                                                                    # interactive CLI (apps/cli)
 ```
 
 ## Commands
@@ -41,7 +41,7 @@ npm test  ·  npm run typecheck
 
 ## LLM models
 
-All agents call OpenRouter. Configure every model in one place: **`agents.config.ts`**
+All agents call OpenRouter. Configure every model in one place: **`packages/engine/agents.config.ts`**
 
 | agent | key | used by |
 |---|---|---|
@@ -75,15 +75,24 @@ data/
 
 ## Layout
 
+npm workspaces monorepo. All npm scripts run from the repo root.
+
 ```
-agents.config.ts            LLM model per agent
-src/
-  config.ts  types.ts  db.ts  paths + apply DB
-  cli/       index.ts       interactive menu
-  tools/
-    job-search/             stand-alone search pipeline (+ jobs.ts: ready jobs for the apply agent)
-    tailor/                 resume tailor workflow (+ tailor.ts: wrapper for the apply agent)
-  browser/   session.ts  apply-page.ts  form.ts  submit.ts
-  agent/     knowledge.ts  memory.ts  answer.ts  prepare.ts  apply.ts  fill.ts
-  server/    server.ts  page.ts
+apps/
+  cli/        src/index.ts            interactive menu (@jobpilot/cli)
+  macos/                              SwiftUI app (planned)
+packages/
+  engine/     (@jobpilot/engine)
+    agents.config.ts                  LLM model per agent
+    src/
+      config.ts  types.ts  db.ts      paths + apply DB
+      tools/
+        job-search/                   stand-alone search pipeline (+ jobs.ts: ready jobs for the apply agent)
+        tailor/                       resume tailor workflow (+ tailor.ts: wrapper for the apply agent)
+      browser/   session.ts  apply-page.ts  form.ts  submit.ts
+      agent/     knowledge.ts  memory.ts  answer.ts  prepare.ts  apply.ts  fill.ts
+      server/    server.ts  page.ts
+  contracts/                          shared schemas (planned)
+scripts/                              run-pipeline.sh
+knowledge/  data/  .env.local         your personal data — gitignored, only *.example files are tracked
 ```

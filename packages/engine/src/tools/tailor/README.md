@@ -13,7 +13,7 @@ Part of apply-agent: lives in `src/tools/tailor/`, used by the apply agent (`tai
 5. **Repeat** up to `MAX_ITERATIONS` times, feeding the score/feedback back in, until the score hits `ATS_THRESHOLD` or stops improving.
 6. **Export** the best round to `data/tailor/output/` as both Markdown and a single-column, table-free `.docx` (parsers choke on tables/columns/text boxes — this avoids all of that).
 
-Different models are used for different steps, since they have very different cost/quality needs — set in `agents.config.ts` (project root) under `tailor`:
+Different models are used for different steps, since they have very different cost/quality needs — set in `agents.config.ts` (engine package root) under `tailor`:
 - **extraction** (JD analysis, experience selection): cheap, fast, non-reasoning model
 - **tailoring**: the actual resume-writing pass — worth paying more for
 - **review**: qualitative ATS feedback — mid-tier

@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const root = resolve(fileURLToPath(import.meta.url), "../..");
+const root = resolve(fileURLToPath(import.meta.url), "../../../..");
 const env = process.env;
 
 export const config = {

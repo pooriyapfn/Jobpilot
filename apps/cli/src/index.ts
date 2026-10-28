@@ -5,12 +5,12 @@ import { spawn } from "child_process";
 import { existsSync, statSync } from "fs";
 import { readFile } from "fs/promises";
 import { join } from "path";
-import { config } from "../config.ts";
-import { addExcludedCompanies } from "../tools/job-search/company-exclusions.ts";
-import { makeId } from "../tools/job-search/db.ts";
-import { OUTPUT_DIR } from "../tools/job-search/paths.ts";
-import { generateReport } from "../tools/job-search/report.ts";
-import type { RunStats, ScoredJob, VerifiedJob } from "../tools/job-search/types.ts";
+import { config } from "@jobpilot/engine/config";
+import { addExcludedCompanies } from "@jobpilot/engine/tools/job-search/company-exclusions";
+import { makeId } from "@jobpilot/engine/tools/job-search/db";
+import { OUTPUT_DIR } from "@jobpilot/engine/tools/job-search/paths";
+import { generateReport } from "@jobpilot/engine/tools/job-search/report";
+import type { RunStats, ScoredJob, VerifiedJob } from "@jobpilot/engine/tools/job-search/types";
 
 const ROOT = config.root; // every npm script runs from the project root
 const APPLY_DB = config.dbPath;

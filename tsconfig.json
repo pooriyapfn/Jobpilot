@@ -1,27 +1,16 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": [
-      "ES2023",
-      "DOM",
-      "DOM.Iterable"
-    ],
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "bundler",
     "strict": true,
-    "types": [
-      "node"
-    ],
+    "types": ["node"],
     "skipLibCheck": true,
     "noEmit": true,
     "allowImportingTsExtensions": true,
     "esModuleInterop": true
   },
-  "include": [
-    "src/**/*.ts",
-    "agents.config.ts"
-  ],
-  "exclude": [
-    "src/tools/job-search/tests/**"
-  ]
+  "include": ["apps/*/src/**/*.ts", "packages/*/src/**/*.ts", "packages/*/agents.config.ts"],
+  "exclude": ["packages/engine/src/tools/job-search/tests/**"]
 }
