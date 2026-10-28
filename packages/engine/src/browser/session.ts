@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
-import { chromium, type Browser, type BrowserContext } from "playwright";
+import { chromium, type Browser, type BrowserContext } from "playwright-core";
 import { config } from "../config.ts";
 
 // Headless browser for the prepare batch (your installed Chrome, no extra download).

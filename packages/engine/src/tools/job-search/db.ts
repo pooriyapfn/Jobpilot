@@ -1,8 +1,6 @@
 import { createHash } from "crypto";
-import Database from "better-sqlite3";
+import { DatabaseSync } from "node:sqlite";
 import type { ScoredJob } from "./types.ts";
-
-export { Database };
 
 const CREATE_TABLE = `
 CREATE TABLE IF NOT EXISTS jobs (
@@ -33,9 +31,9 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 `;
 
-export function initDb(dbPath: string): Database.Database {
-  const db = new Database(dbPath);
-  db.pragma("journal_mode = WAL");
+export function initDb(dbPath: string): DatabaseSync {
+  const db = new DatabaseSync(dbPath);
+  db.exec("PRAGMA journal_mode = WAL");
   db.exec(CREATE_TABLE);
   const migrations = [
     "ALTER TABLE jobs ADD COLUMN fit_classification TEXT",
@@ -56,7 +54,7 @@ export function makeId(canonicalUrl: string): string {
   return createHash("sha256").update(canonicalUrl).digest("hex").slice(0, 16);
 }
 
-export function upsertJob(db: Database.Database, job: ScoredJob): string {
+export function upsertJob(db: DatabaseSync, job: ScoredJob): string {
   const id = makeId(job.url);
   const now = new Date().toISOString();
 
@@ -132,7 +130,7 @@ export function upsertJob(db: Database.Database, job: ScoredJob): string {
   return id;
 }
 
-export function getNewJobs(db: Database.Database): ScoredJob[] {
+export function getNewJobs(db: DatabaseSync): ScoredJob[] {
   const rows = db
     .prepare(
       `SELECT raw_json FROM jobs
@@ -143,7 +141,7 @@ export function getNewJobs(db: Database.Database): ScoredJob[] {
   return rows.map((r) => JSON.parse(r.raw_json) as ScoredJob);
 }
 
-export function markNotified(db: Database.Database, ids: string[]): void {
+export function markNotified(db: DatabaseSync, ids: string[]): void {
   if (ids.length === 0) return;
   const placeholders = ids.map(() => "?").join(",");
   db.prepare(`UPDATE jobs SET notified = 1 WHERE id IN (${placeholders})`).run(...ids);

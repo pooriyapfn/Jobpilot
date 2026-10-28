@@ -201,7 +201,7 @@ const server = http.createServer((_req, res) => {
 
     if (existsSync(DB_PATH)) {
       const db = initDb(DB_PATH);
-      jobs = db.prepare("SELECT * FROM jobs ORDER BY fit_score DESC").all() as DbRow[];
+      jobs = db.prepare("SELECT * FROM jobs ORDER BY fit_score DESC").all() as unknown as DbRow[];
       total = jobs.length;
       newCount = jobs.filter((j) => j.notified === 0).length;
       const scored = jobs.filter((j) => j.fit_score !== null);

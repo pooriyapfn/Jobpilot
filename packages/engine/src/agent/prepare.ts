@@ -1,6 +1,6 @@
 // Batch: for every ready job → find form → tailor resume → answer fields → save for review.
 // Usage: npm run prepare-jobs [-- --limit 10]
-import type { Browser } from "playwright";
+import type { Browser } from "playwright-core";
 import { hasApp, saveApp } from "../db.ts";
 import { hasForm, openApplyPage } from "../browser/apply-page.ts";
 import { launchHeadless } from "../browser/session.ts";

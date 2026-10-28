@@ -16,6 +16,18 @@ for f in knowledge/*.example.md knowledge/resume/*.example.md; do cp -n "$f" "${
 npm start                                                                    # interactive CLI (apps/cli)
 ```
 
+## Where your data lives (`JOBPILOT_HOME`)
+
+`knowledge/`, `data/` and `.env.local` are read from `$JOBPILOT_HOME`. Unset, that is the repo root (dev default, gitignored).
+To use the macOS location (absolute path, no `~`):
+
+```
+export JOBPILOT_HOME="$HOME/Library/Application Support/JobPilot"
+npm start
+```
+
+The `setup-scheduler` launchd job records the value too. Code always runs from the repo checkout; only data moves.
+
 ## Commands
 
 ```
@@ -94,5 +106,5 @@ packages/
       server/    server.ts  page.ts
   contracts/                          shared schemas (planned)
 scripts/                              run-pipeline.sh
-knowledge/  data/  .env.local         your personal data — gitignored, only *.example files are tracked
+knowledge/  data/  .env.local         your personal data (or under $JOBPILOT_HOME) — gitignored, only *.example files are tracked
 ```

@@ -1,6 +1,6 @@
 import chalk from "chalk";
 import select, { Separator } from "@inquirer/select";
-import Database from "better-sqlite3";
+import { DatabaseSync } from "node:sqlite";
 import { spawn } from "child_process";
 import { existsSync, statSync } from "fs";
 import { readFile } from "fs/promises";
@@ -46,7 +46,7 @@ interface ApplyStats {
 function applyStats(eligible: ScoredJob[]): ApplyStats {
   const empty = { byStatus: {}, submittedToday: 0, newJobs: eligible.length };
   if (!existsSync(APPLY_DB)) return empty;
-  const db = new Database(APPLY_DB, { readonly: true });
+  const db = new DatabaseSync(APPLY_DB, { readOnly: true });
   try {
     const rows = db.prepare("SELECT id, status, updated_at FROM applications").all() as
       { id: string; status: string; updated_at: string }[];

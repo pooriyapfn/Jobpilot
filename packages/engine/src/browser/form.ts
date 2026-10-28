@@ -1,4 +1,4 @@
-import type { Frame, Page } from "playwright";
+import type { Frame, Page } from "playwright-core";
 import type { Answers, FormField } from "../types.ts";
 
 // Runs in the page: describes every visible, fillable control.

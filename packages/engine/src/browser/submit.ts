@@ -1,4 +1,4 @@
-import type { Frame, Page } from "playwright";
+import type { Frame, Page } from "playwright-core";
 
 const DONE_URL = /thank|confirm|success|submitted|applied/i;
 const DONE_TEXT = /thank you for (applying|your application)|application (was |has been )?(submitted|received)|we('ve| have) received your application/i;

@@ -24,7 +24,7 @@ function writeScript(): void {
   const content = `#!/bin/bash
 set -e
 export PATH="${nodeBinDir}:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin"
-cd "${PROJECT_DIR}"
+${config.home === PROJECT_DIR ? "" : `export JOBPILOT_HOME="${config.home}"\n`}cd "${PROJECT_DIR}"
 npm run search
 npm run verify
 npm run enrich

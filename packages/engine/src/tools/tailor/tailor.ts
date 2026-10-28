@@ -27,7 +27,7 @@ export const tailorResume = async (id: string, title: string, company: string, j
       rules,
     });
     const resume = stripCodeFence(r.resume);
-    const dir = join(config.root, "data/resumes");
+    const dir = config.resumesDir;
     await mkdir(dir, { recursive: true });
     const docxPath = join(dir, `${id}.docx`);
     await writeFile(join(dir, `${id}.md`), resume);
