@@ -26,7 +26,9 @@
     "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test packages/engine/src/tools/job-search/tests/pipeline.test.ts packages/contracts/test/contracts.test.ts packages/engine/test/server.test.ts packages/engine/test/bin.test.ts",
     "contracts": "node --experimental-strip-types --disable-warning=ExperimentalWarning packages/contracts/scripts/generate.ts",
     "contracts:check": "node --experimental-strip-types --disable-warning=ExperimentalWarning packages/contracts/scripts/generate.ts --check",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "macos:run": "swift run --package-path apps/macos",
+    "macos:test": "swift test --package-path apps/macos"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -13,3 +13,9 @@ knowledge/notes/
 !knowledge/**/*.example.md
 .claude/
 *.db
+
+# Swift
+.build/
+.swiftpm/
+xcuserdata/
+*.xcodeproj/

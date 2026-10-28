@@ -4,7 +4,7 @@ import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSync
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import { registry } from "../src/index.ts";
+import { API_VERSION, registry } from "../src/index.ts";
 import { generateSwift } from "./swift.ts";
 
 const pkg = resolve(fileURLToPath(import.meta.url), "../..");
@@ -15,7 +15,7 @@ export function build() {
   const { schemas } = z.toJSONSchema(registry, { target: "draft-7", uri: (id) => `${id}.schema.json` });
   const files = new Map<string, string>();
   for (const [id, schema] of Object.entries(schemas)) files.set(resolve(schemaDir, `${id}.schema.json`), JSON.stringify(schema, null, 2) + "\n");
-  files.set(swiftFile, generateSwift(schemas as never));
+  files.set(swiftFile, generateSwift(schemas as never, API_VERSION));
   return files;
 }
 

@@ -91,6 +91,7 @@ npm run chrome              Chrome with remote debugging (profile ~/.chrome-jobs
 npm run fill [-- --limit N] open ready jobs as filled tabs in that Chrome; you review + submit
 npm run dashboard           http://localhost:4000 — review/edit answers, click Apply, edits are learned
 npm run serve               engine HTTP API for the Mac app (see Engine API)
+npm run macos:run           the Mac app (starts the engine itself)  ·  npm run macos:test
 # dev
 npm test  ·  npm run typecheck
 ```
@@ -136,7 +137,7 @@ npm workspaces monorepo. All npm scripts run from the repo root.
 ```
 apps/
   cli/        src/index.ts            interactive menu (@jobpilot/cli)
-  macos/                              SwiftUI app (planned); JobPilot/Contracts/Generated/ is generated
+  macos/                              SwiftUI app (see apps/macos/README.md); JobPilot/Contracts/Generated/ is generated
 packages/
   engine/     (@jobpilot/engine)
     agents.config.ts                  LLM model per agent

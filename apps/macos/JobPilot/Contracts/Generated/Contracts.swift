@@ -174,3 +174,7 @@ enum Status: String, Codable, Hashable, Sendable, CaseIterable {
     case submitted
     case skipped
 }
+
+enum Contracts {
+    static let apiVersion = 1
+}
