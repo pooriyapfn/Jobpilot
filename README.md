@@ -1,183 +1,143 @@
 # JobPilot
 
-Finds remote jobs, tailors a resume per job, prepares application answers, then fills each form in **your** Chrome. You always press Submit yourself.
+**AI job search and application assistant for macOS.** JobPilot finds remote jobs, checks that you're actually eligible for them, tailors your resume to each posting, drafts answers to the application form, and fills the form in your own Chrome. **You review everything and press Submit yourself.**
 
-One project, three tools:
-- **job-search** (`packages/engine/src/tools/job-search`) — Brave + job boards → verify → eligibility → `data/job-search/eligible-jobs.json`
-- **tailor** (`packages/engine/src/tools/tailor`) — `runResumeTailor` (fit gate + tailored resume + ATS loop) and the OpenRouter LLM client
-- **apply** (`packages/engine/src/{agent,browser,server}`) — prepare, fill, dashboard, learning memory
+`job search automation` · `resume tailoring` · `ATS resume optimizer` · `AI job application` · `remote jobs` · `SwiftUI macOS app` · `Playwright` · `OpenRouter` · `TypeScript`
 
-## Quick start
+<!-- Screenshots: save images in docs/screenshots/ and uncomment, e.g.
+![Jobs list](docs/screenshots/jobs.png)
+![Tailored resume and answers](docs/screenshots/application.png)
+-->
 
-```
-npm install
-cp .env.local.example .env.local                                             # OPENROUTER_API_KEY, BRAVE_API_KEY
-for f in knowledge/*.example.md knowledge/resume/*.example.md; do cp -n "$f" "${f%.example.md}.md"; done   # then edit
-npm start                                                                    # interactive CLI (apps/cli)
-```
-
-## Where your data lives (`JOBPILOT_HOME`)
-
-`knowledge/`, `data/` and `.env.local` are read from `$JOBPILOT_HOME`. Unset, that is the repo root (dev default, gitignored).
-To use the macOS location (absolute path, no `~`):
+## What it does
 
 ```
-export JOBPILOT_HOME="$HOME/Library/Application Support/JobPilot"
-npm start
+Find jobs ─▶ Verify ─▶ Check eligibility ─▶ Tailor resume ─▶ Draft answers ─▶ Fill in Chrome ─▶ You submit
 ```
 
-The `setup-scheduler` launchd job records the value too. Code always runs from the repo checkout; only data moves.
+- **Finds jobs** across Brave web search, Greenhouse / Lever / Ashby / Workable boards, Hacker News "Who is hiring", YC and funding lists, Google Jobs (optional), RemoteOK, Himalayas and Wellfound.
+- **Verifies each posting**: still open, posted recently, really remote, and open to your country (structured location data first, an LLM only for unclear cases). Your own country and regions are configurable.
+- **Tailors your resume** per job with a fit check and an ATS keyword-score loop. It never invents experience; it only selects and rephrases what is in your own resume files. Exports `.docx`.
+- **Drafts application answers** from your profile and notes, and **learns** from the edits you make.
+- **Fills the form in your own Chrome** (your logins, your session) and stops before Submit.
+- **Native Mac app (SwiftUI)** with a jobs list, per-job resume and answers review, pipeline progress, and editors for your profile and resume. A CLI and a local dashboard are included too.
 
-## Contracts (engine ↔ macOS app)
+Your data stays on your machine. The only network calls go to the job sources you enable and to [OpenRouter](https://openrouter.ai) for the LLM steps.
 
-The types that cross the boundary (Application, FormField, Answer, Status, API request/response bodies) are zod schemas in `packages/contracts/src`.
-Register a new one with `def("Name", z.object(...))`, then:
-
-```
-npm run contracts          # writes packages/contracts/schema/*.json and apps/macos/JobPilot/Contracts/Generated/Contracts.swift
-npm run contracts:check    # fails if the committed files are stale (also part of npm test)
-```
-
-The engine validates request bodies with the same schemas (invalid → HTTP 400). Never edit the generated files.
-
-## Engine API (`engine serve`)
-
-The macOS app launches the engine as a child process and talks to it over HTTP on loopback:
-
-```
-npm run serve                      # = packages/engine/src/bin.ts serve [--port N] [--exit-on-stdin-close]
-```
-
-- **Startup:** the engine prints ONE line on stdout, `{"port":51234,"token":"…","apiVersion":1}` (`EngineReady`); logs go to stderr. Token = `$JOBPILOT_TOKEN` or random. With `--exit-on-stdin-close` it quits when the app (owner of its stdin) exits.
-- **Auth:** every request needs `Authorization: Bearer <token>`. Binds `127.0.0.1` only.
-- **Routes** (payloads are the contracts in `packages/contracts/src`):
+## Requirements
 
 | | |
 |---|---|
-| `GET /api/info` | version, home, key presence, candidate country, job-Chrome reachable |
-| `GET /api/apps` · `GET /api/eligible-jobs` | prepared applications · jobs from the last search (+ application status) |
-| `POST /api/apply/:id` · `/api/answers/:id` · `/api/status/:id` | fill in Chrome · save edited answers · set status |
-| `GET /resume/:id` | tailored resume (.docx) |
-| `GET /api/jobs` · `POST /api/jobs` `{task, limit?}` | pipeline runs; tasks: `search verify enrich prepare fill chrome`; one running job per task (409) |
-| `GET /api/jobs/:id` · `POST /api/jobs/:id/cancel` | status · stop (SIGINT, then SIGKILL after 5 s) |
-| `GET /api/jobs/:id/events` | Server-Sent Events: replay + live lines, ends with the final status; resume with `Last-Event-ID` |
-| `GET /api/knowledge` · `GET`/`PUT /api/knowledge/file?path=` | read/write the markdown the agents use (`.md`/`.txt`, inside `knowledge/`, ≤ 1 MB) |
+| macOS 15+ | for the Mac app (the engine and CLI also run on other systems, but this is only tested on macOS) |
+| Node.js 22.13+ | `node -v` |
+| Google Chrome | used for filling forms and for headless page checks |
+| Swift 6 / Xcode command line tools | only to build the Mac app (`xcode-select --install`) |
+| [OpenRouter](https://openrouter.ai/keys) API key | all LLM steps |
+| [Brave Search](https://brave.com/search/api/) API key | job discovery |
 
-`npm run dashboard` still starts the old dev dashboard (no token, port 4000, same routes).
-Jobs run the existing scripts as child processes with the engine's own node flags and env.
+Optional: a [SerpApi](https://serpapi.com) key for the Google Jobs source.
 
-## Candidate location
+## Quick start
 
-Geo filtering uses `CANDIDATE_COUNTRY` / `CANDIDATE_CITY` / `CANDIDATE_REGIONS` (see `.env.local.example`). Your own country is never
-treated as restricted; jobs naming it count as eligible. A job open to a region you're in (EMEA, MENA, LATAM, APAC, … — derived from your
-country, or set with `CANDIDATE_REGIONS`) is eligible; one limited to other regions is restricted. "Europe" stays for the AI check unless
-your country is clearly inside it. With no country set, regional jobs go to the AI check. JSON-LD `applicantLocationRequirements` beats
-the office `jobLocation` for remote jobs.
+**1. Install**
 
-## Search sources
-
-Each search looks back to the previous search (plus a day of overlap, 1–7 days; `last-run.json`), so frequent manual runs stay cheap.
-
-| Source | What |
-|---|---|
-| `brave` | web search: role, startup and location queries (`searchQueries()` in `config.ts`) |
-| `watchlist` / `yc` / `funding` | company names → their Greenhouse/Lever/Ashby/Workable board |
-| `hn` | latest HN "Who is hiring" thread |
-| `google` | Google Jobs via SerpApi (`SERPAPI_KEY`) — reaches agency and small-company sites with JSON-LD |
-| `sites` | non-ATS career pages (`watched-sites.json`): verify adds a site after finding a real remote job on it; seeds in `WATCHED_SITE_SEEDS` |
-| `remoteok` | RemoteOK public API (credit + link back to Remote OK: kept as `via:` on each job) |
-| `himalayas` | Himalayas search API, filtered to jobs open to `CANDIDATE_COUNTRY` (else worldwide only) |
-| `wellfound` | Brave's index of Wellfound job pages (no public API; Wellfound pages are never scraped for discovery) |
-| `known` | every board found before (`ats-slugs.json`) is polled again until it has had no relevant role for 60 days |
-
-Aggregator listings (RemoteOK, Himalayas, Wellfound) are matched to the same job on the company's own Greenhouse/Lever/Ashby/
-Workable board, which has the full application form; the employer's posting then decides remote/date/location. Unmatched
-listings keep the aggregator page plus its API data (`listing`); prepare hands those to your Chrome, where "Apply" leads to the
-employer (Himalayas has a bot check, RemoteOK's Apply redirect and Wellfound's own form need a real browser session).
-
-`npm run search -- --only=google,sites` runs a subset. After `npm run verify`, `stats.json` → `yield` and `yield-history.jsonl` show which
-queries and sources produce candidates.
-
-## Commands
-
-```
-npm start / npm run cli     interactive menu: find → prepare → fill → review
-# job-search
-npm run search              Brave + job boards → data/job-search/jobs.json
-npm run verify              fetch pages, freshness, location, closed postings
-npm run enrich              LLM eligibility check → eligible-jobs.json
-npm run report              markdown report → data/job-search/reports/
-npm run jobs-dashboard      job-search DB dashboard (port 3000)
-npm run tailor-batch        tailor resumes for all eligible jobs → data/tailor/output/
-npm run setup-scheduler     launchd: search+verify+enrich every 12h  (npm run unschedule to remove)
-# tailor
-npm run tailor [-- --force] one resume for data/tailor/job_description.md → data/tailor/output/
-# apply
-npm run prepare-jobs        per new job (headless): find form → tailor resume → answer fields → data/agent.db
-npm run chrome              Chrome with remote debugging (profile ~/.chrome-jobs) — log in to sites once
-npm run fill [-- --limit N] open ready jobs as filled tabs in that Chrome; you review + submit
-npm run dashboard           http://localhost:4000 — review/edit answers, click Apply, edits are learned
-npm run serve               engine HTTP API for the Mac app (see Engine API)
-npm run macos:run           the Mac app (starts the engine itself)  ·  npm run macos:test
-# dev
-npm test  ·  npm run typecheck
+```bash
+git clone https://github.com/pooriyapfn/Jobpilot.git
+cd Jobpilot
+npm install
 ```
 
-## LLM models
+**2. Create your private data folder**
 
-All agents call OpenRouter. Configure every model in one place: **`packages/engine/agents.config.ts`**
+JobPilot keeps your resume, answers, API keys and results outside the code, in `$JOBPILOT_HOME`. This is the same folder the Mac app uses by default.
 
-| agent | key | used by |
-|---|---|---|
-| tailor | `tailor.extraction` / `tailor.tailoring` / `tailor.review` | JD analysis + experience selection / resume writing / fit + ATS feedback |
-| job-search | `eligibility` | uncertain-location eligibility check |
-| apply | `answer` | application form answers |
-
-Each can be overridden by env var (see `.env.local.example`).
-
-## Knowledge (markdown intelligence)
-
-```
-knowledge/
-  profile.md  preferences.md  answers.md  style.md   answer agent notes (every top-level .md is read)
-  resume/     main_resume.md (canonical CV) · base_resume.md (experience bank) · rules.md (tailoring rules)
-  notes/      personal notes, not read by agents
+```bash
+export JOBPILOT_HOME="$HOME/Library/Application Support/JobPilot"
+mkdir -p "$JOBPILOT_HOME"
+cp -n .env.local.example "$JOBPILOT_HOME/.env.local"
+for f in knowledge/*.example.md knowledge/resume/*.example.md; do
+  d="$JOBPILOT_HOME/${f%.example.md}.md"; mkdir -p "$(dirname "$d")"; cp -n "$f" "$d"
+done
 ```
 
-Answer agent trusts, in order: `knowledge/*.md` → learned answers (`memory` table in `data/agent.db`) → tailored resume + `knowledge/resume/`.
+**3. Add your keys and details**
 
-## Data
-
-```
-data/
-  agent.db          applications + learned answers
-  resumes/          resumes tailored by prepare-jobs (<id>.{md,docx})
-  job-search/       search pipeline output: jobs.db, eligible-jobs.json, excluded-companies.json, ats-slugs.json, reports/
-  tailor/           job_description.md (single-run input)
-  tailor/output/    archive of all tailored resumes
-```
-
-## Layout
-
-npm workspaces monorepo. All npm scripts run from the repo root.
+Edit `$JOBPILOT_HOME/.env.local`:
 
 ```
-apps/
-  cli/        src/index.ts            interactive menu (@jobpilot/cli)
-  macos/                              SwiftUI app (see apps/macos/README.md); JobPilot/Contracts/Generated/ is generated
-packages/
-  engine/     (@jobpilot/engine)
-    agents.config.ts                  LLM model per agent
-    src/
-      config.ts  types.ts  db.ts      paths + apply DB
-      tools/
-        job-search/                   stand-alone search pipeline (+ jobs.ts: ready jobs for the apply agent)
-        tailor/                       resume tailor workflow (+ tailor.ts: wrapper for the apply agent)
-      browser/   session.ts  apply-page.ts  form.ts  submit.ts
-      agent/     knowledge.ts  memory.ts  answer.ts  prepare.ts  apply.ts  fill.ts
-      server/    server.ts (startServer) routes.ts jobs.ts knowledge.ts http.ts page.ts
-      bin.ts                          `engine serve` entry
-  contracts/  (@jobpilot/contracts)   zod schemas → schema/*.json → Swift (apps/macos/.../Contracts.swift)
-scripts/                              run-pipeline.sh
-knowledge/  data/  .env.local         your personal data (or under $JOBPILOT_HOME) — gitignored, only *.example files are tracked
+OPENROUTER_API_KEY="sk-or-v1-..."
+BRAVE_API_KEY="..."
+CANDIDATE_COUNTRY="Germany"      # where you live: drives the eligibility filter
+CANDIDATE_CITY="Berlin"
 ```
+
+Then replace the placeholder text in `$JOBPILOT_HOME/knowledge/` with your own: `resume/main_resume.md` (your CV), `resume/base_resume.md` (a bank of all your experience), `profile.md`, `preferences.md`, `answers.md`.
+
+**4. Run it**
+
+Mac app:
+
+```bash
+npm run macos:run                 # run from source, or
+./scripts/make-app.sh             # build ~/Applications/JobPilot.app, then open it like any app
+```
+
+In the app: **Find jobs** → pick a job → **Prepare** → review the resume and answers → **Apply** (opens the filled form in Chrome) → check it and submit.
+
+Or the terminal menu:
+
+```bash
+npm start
+```
+
+Or step by step:
+
+```bash
+npm run search && npm run verify && npm run enrich   # find, verify, check eligibility
+npm run prepare-jobs                                 # tailor resumes + draft answers
+npm run chrome                                       # open the job-hunting Chrome; log in to sites once
+npm run fill -- --limit 3                            # open filled forms; you review and submit
+```
+
+> The Mac app builds from this repo and starts the engine from it, so keep the repo where it is after `make-app.sh`. A standalone signed `.app` with bundled Node is not done yet.
+
+## Is it safe?
+
+- It **never submits** an application. It fills the form and leaves the tab open for you.
+- It runs in **your own Chrome profile** (`~/.chrome-jobs`), so it uses your normal logins and no credentials are handed to JobPilot.
+- Resume and answer text is built only from your own files. The tailoring rules forbid inventing experience, tools, or years.
+- The local engine listens on `127.0.0.1` only, with a per-launch token.
+- Keys and personal files (`.env.local`, `knowledge/`, `data/`) are gitignored. Only `*.example` templates are in the repo.
+
+## Documentation
+
+- [Reference](docs/REFERENCE.md): every command, search source, API route, config option, data folder and the project layout.
+- [macOS app](apps/macos/README.md): architecture of the SwiftUI app.
+- [Contracts](packages/contracts/README.md): shared types between the engine and the app.
+
+## Project layout
+
+```
+apps/cli         interactive terminal menu
+apps/macos       SwiftUI app
+packages/engine  job search, resume tailor, apply agent, local HTTP API
+packages/contracts  zod schemas shared with the Swift app
+```
+
+## Development
+
+```bash
+npm test               # engine + contracts tests
+npm run typecheck
+npm run macos:test     # Swift tests
+```
+
+Change a shared type in `packages/contracts/src`, then run `npm run contracts` to regenerate the JSON Schema and Swift types.
+
+## Contributing
+
+Issues and pull requests are welcome. Please run `npm test` and `npm run typecheck` before opening a PR, and never commit real personal data or keys.
+
+## Disclaimer
+
+JobPilot automates repetitive steps; you remain responsible for what you submit. Respect each site's terms of use and rate limits. Job-board data belongs to its owners (RemoteOK and Himalayas listings keep a link back to their source).
