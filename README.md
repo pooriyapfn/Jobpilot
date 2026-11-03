@@ -68,8 +68,35 @@ Jobs run the existing scripts as child processes with the engine's own node flag
 
 ## Candidate location
 
-Geo filtering uses `CANDIDATE_COUNTRY` / `CANDIDATE_CITY` (see `.env.local.example`). Your own country is never treated as restricted;
-jobs naming it count as eligible. `EMEA` is always treated as open.
+Geo filtering uses `CANDIDATE_COUNTRY` / `CANDIDATE_CITY` / `CANDIDATE_REGIONS` (see `.env.local.example`). Your own country is never
+treated as restricted; jobs naming it count as eligible. A job open to a region you're in (EMEA, MENA, LATAM, APAC, … — derived from your
+country, or set with `CANDIDATE_REGIONS`) is eligible; one limited to other regions is restricted. "Europe" stays for the AI check unless
+your country is clearly inside it. With no country set, regional jobs go to the AI check. JSON-LD `applicantLocationRequirements` beats
+the office `jobLocation` for remote jobs.
+
+## Search sources
+
+Each search looks back to the previous search (plus a day of overlap, 1–7 days; `last-run.json`), so frequent manual runs stay cheap.
+
+| Source | What |
+|---|---|
+| `brave` | web search: role, startup and location queries (`searchQueries()` in `config.ts`) |
+| `watchlist` / `yc` / `funding` | company names → their Greenhouse/Lever/Ashby/Workable board |
+| `hn` | latest HN "Who is hiring" thread |
+| `google` | Google Jobs via SerpApi (`SERPAPI_KEY`) — reaches agency and small-company sites with JSON-LD |
+| `sites` | non-ATS career pages (`watched-sites.json`): verify adds a site after finding a real remote job on it; seeds in `WATCHED_SITE_SEEDS` |
+| `remoteok` | RemoteOK public API (credit + link back to Remote OK: kept as `via:` on each job) |
+| `himalayas` | Himalayas search API, filtered to jobs open to `CANDIDATE_COUNTRY` (else worldwide only) |
+| `wellfound` | Brave's index of Wellfound job pages (no public API; Wellfound pages are never scraped for discovery) |
+| `known` | every board found before (`ats-slugs.json`) is polled again until it has had no relevant role for 60 days |
+
+Aggregator listings (RemoteOK, Himalayas, Wellfound) are matched to the same job on the company's own Greenhouse/Lever/Ashby/
+Workable board, which has the full application form; the employer's posting then decides remote/date/location. Unmatched
+listings keep the aggregator page plus its API data (`listing`); prepare hands those to your Chrome, where "Apply" leads to the
+employer (Himalayas has a bot check, RemoteOK's Apply redirect and Wellfound's own form need a real browser session).
+
+`npm run search -- --only=google,sites` runs a subset. After `npm run verify`, `stats.json` → `yield` and `yield-history.jsonl` show which
+queries and sources produce candidates.
 
 ## Commands
 
