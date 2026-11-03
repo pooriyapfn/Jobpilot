@@ -4,6 +4,8 @@ import SwiftUI
 struct AnswerEditor: View {
     let app: ApplicationSummary
     @Binding var draft: AnswerDraft
+    @Binding var focusField: String?
+    @FocusState private var focused: String?
 
     var body: some View {
         let fields = app.fields.filter { $0.type != .file }
@@ -13,8 +15,18 @@ struct AnswerEditor: View {
         } else {
             VStack(alignment: .leading, spacing: 14) {
                 ForEach(fields) { field in
-                    FieldRow(field: field, unsure: unsure(field), value: binding(field))
+                    FieldRow(
+                        field: field, unsure: draft.isUnresolved(field, in: app), value: binding(field), focused: $focused,
+                        confirm: { draft.confirm(field.id) }
+                    )
+                    .id(field.id)
                 }
+            }
+            .onChange(of: focusField) {
+                if let id = focusField { focused = id }
+            }
+            .onChange(of: focused) {
+                if focused == nil { focusField = nil }
             }
         }
     }
@@ -22,27 +34,29 @@ struct AnswerEditor: View {
     private func binding(_ field: FormField) -> Binding<String> {
         Binding(get: { draft.values[field.id] ?? "" }, set: { draft.values[field.id] = $0 })
     }
-
-    /// Needs a human look: blank, or the agent flagged it — until you change it.
-    private func unsure(_ field: FormField) -> Bool {
-        if draft.edits[field.id] != nil { return false }
-        guard let a = app.answers[field.id] else { return true }
-        return a.value.isEmpty || !a.confident
-    }
 }
 
 private struct FieldRow: View {
     let field: FormField
     let unsure: Bool
     @Binding var value: String
+    var focused: FocusState<String?>.Binding
+    let confirm: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 4) {
+            HStack(spacing: 6) {
                 Text(field.label).font(.subheadline.weight(.medium))
-                if field.required { Text("*").foregroundStyle(.red) }
+                if field.required { Text("*").foregroundStyle(.red).accessibilityLabel("required") }
+                Spacer()
                 if unsure {
-                    Text("needs you").font(.caption2).foregroundStyle(.orange)
+                    Label(value.isEmpty ? "Needs an answer" : "Check this answer", systemImage: "exclamationmark.circle.fill")
+                        .font(.caption).foregroundStyle(.orange)
+                    if !value.isEmpty {
+                        Button("This is correct", action: confirm)
+                            .controlSize(.small)
+                            .help("Keep this answer as it is, and remember it")
+                    }
                 }
             }
             control
@@ -62,12 +76,14 @@ private struct FieldRow: View {
                 .scrollContentBackground(.hidden)
                 .padding(4)
                 .background(.background.secondary, in: RoundedRectangle(cornerRadius: 6))
+                .focused(focused, equals: field.id)
         case .select, .radio:
             Picker(field.label, selection: $value) {
                 Text("—").tag("")
                 ForEach(options, id: \.self) { Text($0).tag($0) }
             }
             .labelsHidden()
+            .focused(focused, equals: field.id)
         case .checkbox:
             // The engine ticks a checkbox when the answer is "Yes" / "true".
             Toggle(field.options?.first ?? "Yes", isOn: Binding(
@@ -78,6 +94,7 @@ private struct FieldRow: View {
             TextField(field.label, text: $value)
                 .textFieldStyle(.roundedBorder)
                 .labelsHidden()
+                .focused(focused, equals: field.id)
         }
     }
 

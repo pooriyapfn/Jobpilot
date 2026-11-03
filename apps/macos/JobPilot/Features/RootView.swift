@@ -7,39 +7,14 @@ struct RootView: View {
         Group {
             switch store.engine.state {
             case .running:
-                ApplicationsView()
+                WorkspaceView()
             case .stopped, .starting:
                 ProgressView("Starting engine…")
             case let .failed(message):
                 EngineFailedView(message: message)
             }
         }
-        .frame(minWidth: 760, minHeight: 440)
-        .toolbar {
-            ToolbarItem(placement: .navigation) { EngineBadge() }
-            ToolbarItem {
-                Button("Refresh", systemImage: "arrow.clockwise") { Task { await store.refresh() } }
-                    .keyboardShortcut("r")
-                    .disabled(store.engine.state != .running)
-            }
-        }
         .navigationTitle("JobPilot")
-    }
-}
-
-private struct EngineBadge: View {
-    @Environment(AppStore.self) private var store
-
-    var body: some View {
-        let (text, tint): (String, Color) = switch store.engine.state {
-        case .running: ("Engine running", .green)
-        case .starting, .stopped: ("Starting…", .orange)
-        case .failed: ("Engine stopped", .red)
-        }
-        Label(text, systemImage: "circle.fill")
-            .labelStyle(.titleAndIcon)
-            .font(.caption)
-            .foregroundStyle(tint)
     }
 }
 

@@ -2,6 +2,32 @@ import SwiftUI
 
 extension ApplicationSummary {
     var fitText: String { fit ?? "—" }
+
+    /// "STRONG_FIT" → "Strong fit". Nil when the tailor gave no verdict.
+    var fitLabel: String? {
+        guard let fit, !fit.isEmpty else { return nil }
+        let words = fit.replacingOccurrences(of: "_", with: " ").lowercased()
+        return words.prefix(1).uppercased() + words.dropFirst()
+    }
+
+    /// The one short line under a row's role: what needs doing, or the state it is in.
+    var listStatusText: String {
+        switch status {
+        case .prepared:
+            switch needsYou {
+            case 0: "Ready"
+            case 1: "1 answer to review"
+            case let n: "\(n) answers to review"
+            }
+        case .filling: "Filling in Chrome…"
+        case .manual: "Apply by hand"
+        case .blocked: "Needs your login"
+        case .skipFit: "Not a fit"
+        default: status.label
+        }
+    }
+
+    var needsAttention: Bool { status == .prepared && needsYou > 0 }
     var atsText: String { atsScore.map { String(Int($0.rounded())) } ?? "—" }
     var atsSortKey: Double { atsScore ?? -1 }
 

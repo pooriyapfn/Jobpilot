@@ -3,6 +3,10 @@
 
 import Foundation
 
+struct AddListingRequest: Codable, Hashable, Sendable {
+    var url: String
+}
+
 struct Answer: Codable, Hashable, Sendable {
     var value: String
     var confident: Bool
@@ -39,6 +43,19 @@ struct ApplicationSummary: Codable, Hashable, Sendable, Identifiable {
     var answers: [String: Answer]
     var note: String?
     var updatedAt: String
+}
+
+enum Eligibility: String, Codable, Hashable, Sendable, CaseIterable {
+    case notEvaluated = "not-evaluated"
+    case eligible
+    case notEligible = "not-eligible"
+    case review
+}
+
+enum EligibilitySource: String, Codable, Hashable, Sendable, CaseIterable {
+    case search
+    case check
+    case you
 }
 
 struct EligibleJob: Codable, Hashable, Sendable, Identifiable {
@@ -87,6 +104,13 @@ struct FormField: Codable, Hashable, Sendable, Identifiable {
     var options: [String]?
 }
 
+enum JobActivity: String, Codable, Hashable, Sendable, CaseIterable {
+    case assessing
+    case preparing
+    case regenerating
+    case filling
+}
+
 struct JobEvent: Codable, Hashable, Sendable {
     var seq: Int
     var ts: String
@@ -108,6 +132,56 @@ struct JobInfo: Codable, Hashable, Sendable, Identifiable {
     var startedAt: String
     var endedAt: String?
     var exitCode: Int?
+}
+
+struct JobListing: Codable, Hashable, Sendable, Identifiable {
+    var id: String
+    var url: String
+    var title: String
+    var company: String
+    var eligibility: Eligibility
+    var eligibilityReason: String?
+    var eligibilitySource: EligibilitySource?
+    var evaluatedAt: String?
+    var datePosted: String?
+    var addedAt: String
+    var updatedAt: String
+    var snippet: String
+    var location: String?
+    var userNote: String?
+    var appliedAt: String?
+    var applicationStatus: Status?
+    var resumeReady: Bool
+    var matchFit: String?
+    var activity: JobActivity?
+    var activityStep: String?
+    var activityError: String?
+}
+
+struct JobListingDetail: Codable, Hashable, Sendable, Identifiable {
+    var id: String
+    var url: String
+    var title: String
+    var company: String
+    var eligibility: Eligibility
+    var eligibilityReason: String?
+    var eligibilitySource: EligibilitySource?
+    var evaluatedAt: String?
+    var datePosted: String?
+    var addedAt: String
+    var updatedAt: String
+    var snippet: String
+    var location: String?
+    var userNote: String?
+    var appliedAt: String?
+    var applicationStatus: Status?
+    var resumeReady: Bool
+    var matchFit: String?
+    var activity: JobActivity?
+    var activityStep: String?
+    var activityError: String?
+    var description: String
+    var matchNotes: String?
 }
 
 enum JobStatus: String, Codable, Hashable, Sendable, CaseIterable {
@@ -146,12 +220,25 @@ struct OkResponse: Codable, Hashable, Sendable {
     var ok: Bool
 }
 
+enum RemoveScope: String, Codable, Hashable, Sendable, CaseIterable {
+    case listing
+    case everything
+}
+
 struct SaveAnswersRequest: Codable, Hashable, Sendable {
     var answers: [String: String]
 }
 
 struct SaveKnowledgeRequest: Codable, Hashable, Sendable {
     var content: String
+}
+
+struct SetEligibilityRequest: Codable, Hashable, Sendable {
+    var eligibility: Eligibility
+}
+
+struct SetNoteRequest: Codable, Hashable, Sendable {
+    var note: String
 }
 
 struct SetStatusRequest: Codable, Hashable, Sendable {

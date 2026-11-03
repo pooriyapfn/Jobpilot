@@ -14,12 +14,20 @@ Data comes from `$JOBPILOT_HOME`, default `~/Library/Application Support/JobPilo
 
 ```
 JobPilot/
-  JobPilotApp.swift            @main, activation, shutdown
-  Engine/                      EngineLocator (node + script), EngineProcess (lifecycle), EngineClient (typed HTTP)
+  JobPilotApp.swift            @main, activation, Settings scene, quit-with-unsaved-edits guard
+  Engine/                      EngineLocator (node + script), EngineProcess (lifecycle), EngineClient (typed HTTP, jobs, knowledge)
   Features/
-    RootView.swift             engine states, toolbar
-    Applications/              AppStore, table, detail inspector, AnswerEditor, AnswerDraft
+    RootView.swift             engine states
+    WorkspaceView.swift        sidebar | list | detail split view, toolbar (search, refresh, Add Job menu)
+    SidebarView.swift          filters + counts, Library, Settings
+    Applications/              AppStore, ApplicationFilter, list, detail (Resume / Answers / Job posting), footer, AnswerDraft
+    Library/                   My profile / Base resume / Experience bank markdown editors
+    Jobs/                      jobs repository: list (status filter, sort), job detail, Add link sheet, I already applied / Not eligible / Delete
+    Pipeline/                  Find jobs + Prepare sheets, PipelineRun (step-by-step job watcher)
+    SettingsView.swift         engine / Chrome / key status (no secrets shown)
   Contracts/Generated/         generated — never edit (npm run contracts)
 ```
 
-Not yet: pipeline runs from the UI, knowledge editor, Keychain settings (Phase 6); a signed `.app` with bundled Node (Phase 7).
+Design handoff: `design/macos-ui-v2/`. The resume preview is AppKit Quick Look (DOCX); it falls back to Open / Save a Copy when macOS can't render the file.
+
+Not yet: Keychain-backed key editing; a signed `.app` with bundled Node (Phase 7).
