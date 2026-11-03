@@ -1,13 +1,10 @@
-# JobPilot
+# JobPilot: AI Job Search, Resume Tailoring and Auto-Fill for macOS
 
-**AI job search and application assistant for macOS.** JobPilot finds remote jobs, checks that you're actually eligible for them, tailors your resume to each posting, drafts answers to the application form, and fills the form in your own Chrome. **You review everything and press Submit yourself.**
+![JobPilot: jobs list, tailored resume and Fill in Chrome](docs/screenshots/jobs.png)
+
+**JobPilot is an open-source AI job search and application assistant for macOS.** JobPilot finds remote jobs, checks that you're actually eligible for them, tailors your resume to each posting, drafts answers to the application form, and fills the form in your own Chrome. **You review everything and press Submit yourself.**
 
 `job search automation` · `resume tailoring` · `ATS resume optimizer` · `AI job application` · `remote jobs` · `SwiftUI macOS app` · `Playwright` · `OpenRouter` · `TypeScript`
-
-<!-- Screenshots: save images in docs/screenshots/ and uncomment, e.g.
-![Jobs list](docs/screenshots/jobs.png)
-![Tailored resume and answers](docs/screenshots/application.png)
--->
 
 ## What it does
 
