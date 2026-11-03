@@ -32,7 +32,7 @@ export type ResumeCandidate = {
 export class SkipError extends Error {
   readonly fit: FitClassification;
   constructor(fit: FitClassification) {
-    super(`SKIP: ${fit.gaps.join("; ")}`);
+    super(`SKIP: ${fit.gaps.map((g) => `${g.type}: ${g.detail}`).join("; ")}`);
     this.name = "SkipError";
     this.fit = fit;
   }
@@ -198,7 +198,7 @@ const main = async () => {
     if (error instanceof SkipError) {
       logger.summary([
         `  Fit:          SKIP — no resume generated`,
-        `  Gaps:         ${error.fit.gaps.join(", ") || "see reasons below"}`,
+        `  Gaps:         ${error.fit.gaps.map((g) => `${g.type}: ${g.detail}`).join(", ") || "see reasons below"}`,
         ...error.fit.reasons.map((r) => `  Reason:       ${r}`),
         `  Total cost:   $${getRunCost().toFixed(4)}`,
       ]);

@@ -278,7 +278,8 @@ describe("classifyGeographicScope", () => {
       "",
       "Engineer"
     );
-    assert.equal(result.scope, "emea");
+    assert.equal(result.scope, "region");
+    assert.equal(result.region, "EMEA");
   });
 
   it("detects the candidate's own country in location", () => {
@@ -493,9 +494,9 @@ describe("classifyVerificationOutcome", () => {
     );
   });
 
-  it("emea scope → verified-fresh", () => {
+  it("open region scope → verified-fresh", () => {
     assert.equal(
-      classifyVerificationOutcome(makeVerifiedJob({ geographicScope: "emea" })),
+      classifyVerificationOutcome(makeVerifiedJob({ geographicScope: "region", openRegion: "EMEA" })),
       "verified-fresh"
     );
   });
@@ -657,5 +658,297 @@ describe("toSourceJobs", () => {
   it("matches role titles", () => {
     assert.ok(isRelevantTitle("Founding Engineer"));
     assert.ok(!isRelevantTitle("Engineering Manager"));
+  });
+});
+
+// ── Candidate regions, JSON-LD fields, new sources ───────────────────────────
+
+import { candidate } from "../candidate.ts";
+import { extractApplicantLocations, extractSalary, isRecruitingAgency } from "../extractor.ts";
+import { braveFreshness, searchWindowDays } from "../search.ts";
+import { boardFromUrl } from "../sources/company-boards.ts";
+import { pickApplyUrl, postedAtToIso, toBoardJob } from "../sources/google-jobs.ts";
+import { indexUrlFor, jobLinks } from "../sources/watched-sites.ts";
+
+// Real posting (argusrecruit.com/jobs/AR-SSE01), trimmed
+const ARGUS_JSONLD = {
+  "@type": "JobPosting",
+  title: "Senior Software Engineer",
+  description: "<p>ArgusRecruit is recruiting on behalf of an international AI-first company on a confidential basis.</p>",
+  datePosted: "2026-10-27T08:56:47Z",
+  hiringOrganization: { "@type": "Organization", name: "ArgusRecruit" },
+  jobLocationType: "TELECOMMUTE",
+  applicantLocationRequirements: { "@type": "Country", name: "Europe / MENA" },
+  baseSalary: {
+    "@type": "MonetaryAmount",
+    currency: "USD",
+    value: { "@type": "QuantitativeValue", minValue: 85000, maxValue: 120000, unitText: "YEAR" },
+  },
+};
+
+describe("candidate regions", () => {
+  const saved = { c: process.env.CANDIDATE_COUNTRY, r: process.env.CANDIDATE_REGIONS };
+  after(() => {
+    saved.c === undefined ? delete process.env.CANDIDATE_COUNTRY : (process.env.CANDIDATE_COUNTRY = saved.c);
+    saved.r === undefined ? delete process.env.CANDIDATE_REGIONS : (process.env.CANDIDATE_REGIONS = saved.r);
+  });
+
+  it("derives regions from the country", () => {
+    delete process.env.CANDIDATE_REGIONS;
+    process.env.CANDIDATE_COUNTRY = "Turkey";
+    assert.deepEqual(candidate().regions, ["EMEA", "MENA"]);
+    process.env.CANDIDATE_COUNTRY = "Brazil";
+    assert.deepEqual(candidate().regions, ["LATAM", "Americas"]);
+    delete process.env.CANDIDATE_COUNTRY;
+    assert.deepEqual(candidate().regions, []);
+  });
+
+  it("CANDIDATE_REGIONS overrides the derived list", () => {
+    process.env.CANDIDATE_COUNTRY = "Turkey";
+    process.env.CANDIDATE_REGIONS = "emea, Europe";
+    assert.deepEqual(candidate().regions, ["EMEA", "Europe"]);
+    delete process.env.CANDIDATE_REGIONS;
+  });
+
+  it("a region the candidate is in is open; other regions are restricted", () => {
+    process.env.CANDIDATE_COUNTRY = "Turkey";
+    const mena = classifyGeographicScope(["Europe / MENA"], "", "", "Engineer");
+    assert.equal(mena.scope, "region");
+    assert.equal(mena.region, "MENA");
+    assert.equal(classifyGeographicScope(["Remote - LATAM"], "", "", "Engineer").scope, "specific-country");
+    assert.equal(classifyGeographicScope(["Europe"], "", "", "Engineer").scope, "unknown");
+
+    process.env.CANDIDATE_COUNTRY = "Brazil";
+    assert.equal(classifyGeographicScope(["Remote - LATAM"], "", "", "Engineer").scope, "region");
+    assert.equal(classifyGeographicScope(["Remote EMEA"], "", "", "Engineer").scope, "specific-country");
+
+    process.env.CANDIDATE_COUNTRY = "Germany";
+    assert.equal(classifyGeographicScope(["Europe"], "", "", "Engineer").scope, "region");
+  });
+
+  it("without a country, regional jobs are left for the AI check", () => {
+    delete process.env.CANDIDATE_COUNTRY;
+    assert.equal(classifyGeographicScope(["Remote EMEA"], "", "", "Engineer").scope, "unknown");
+    assert.equal(classifyGeographicScope(["Remote - LATAM"], "", "", "Engineer").scope, "unknown");
+  });
+});
+
+describe("JobPosting fields", () => {
+  it("reads applicantLocationRequirements in its shapes", () => {
+    assert.deepEqual(extractApplicantLocations(ARGUS_JSONLD), ["Europe / MENA"]);
+    assert.deepEqual(
+      extractApplicantLocations({
+        applicantLocationRequirements: ["Turkey", { "@type": "Country", address: { addressCountry: "DE" } }],
+      }),
+      ["Turkey", "DE"]
+    );
+    assert.deepEqual(extractApplicantLocations({}), []);
+  });
+
+  it("converts salaries to monthly USD", () => {
+    assert.deepEqual(extractSalary(ARGUS_JSONLD), {
+      min: 85000, max: 120000, currency: "USD", unit: "YEAR", monthlyUsd: 10000,
+    });
+    assert.equal(extractSalary({ baseSalary: { currency: "USD", value: { value: 20, unitText: "HOUR" } } })?.monthlyUsd, 3200);
+    assert.equal(extractSalary({ baseSalary: { currency: "TRY", value: { maxValue: 90000, unitText: "MONTH" } } })?.monthlyUsd, undefined);
+    assert.equal(extractSalary({}), undefined);
+  });
+
+  it("flags recruiting agencies", () => {
+    assert.ok(isRecruitingAgency("ArgusRecruit", ""));
+    assert.ok(isRecruitingAgency("Acme", "We are hiring on behalf of our client, a fintech."));
+    assert.ok(!isRecruitingAgency("Acme", "Join our team"));
+  });
+
+  it("the Argus posting is an eligible remote job for a candidate in Turkey", () => {
+    const saved = process.env.CANDIDATE_COUNTRY;
+    process.env.CANDIDATE_COUNTRY = "Turkey";
+    const geo = classifyGeographicScope(extractApplicantLocations(ARGUS_JSONLD), "", "", "Senior Software Engineer");
+    saved === undefined ? delete process.env.CANDIDATE_COUNTRY : (process.env.CANDIDATE_COUNTRY = saved);
+    assert.equal(geo.scope, "region");
+    assert.equal(
+      classifyWorkMode("TELECOMMUTE", undefined, "", "", "Senior Software Engineer").mode,
+      "remote"
+    );
+  });
+});
+
+describe("search window", () => {
+  const now = Date.parse("2026-11-03T12:00:00Z");
+  it("looks back to the last run plus a day, 1–7 days", () => {
+    assert.equal(searchWindowDays(undefined, now), 7);
+    assert.equal(searchWindowDays("2026-11-03T06:00:00Z", now), 2);
+    assert.equal(searchWindowDays("2026-11-03T11:30:00Z", now), 2);
+    assert.equal(searchWindowDays("2026-10-01T00:00:00Z", now), 7);
+  });
+  it("maps to Brave freshness", () => {
+    assert.equal(braveFreshness(1), "pd");
+    assert.equal(braveFreshness(7), "pw");
+    assert.equal(braveFreshness(3, new Date(now)), "2026-10-31to2026-11-03");
+  });
+});
+
+describe("company registry", () => {
+  it("reads the ATS board from a job URL", () => {
+    assert.deepEqual(boardFromUrl("https://jobs.ashbyhq.com/Acme/1234"), { ats: "ashby", slug: "Acme" });
+    assert.deepEqual(boardFromUrl("https://job-boards.greenhouse.io/acme/jobs/1"), { ats: "greenhouse", slug: "acme" });
+    assert.equal(boardFromUrl("https://apply.workable.com/j/ABC"), null);
+    assert.equal(boardFromUrl("https://jobs.lever.co/jobgether/123"), null);
+    assert.equal(boardFromUrl("https://example.com/jobs/1"), null);
+  });
+  it("keeps startup titles", () => {
+    assert.ok(isRelevantTitle("Member of Technical Staff"));
+    assert.ok(isRelevantTitle("Forward Deployed Engineer"));
+    assert.ok(isRelevantTitle("Solutions Engineer"));
+    assert.ok(!isRelevantTitle("Solutions Architect"));
+  });
+});
+
+describe("google jobs", () => {
+  it("parses posted_at", () => {
+    const now = Date.parse("2026-11-03T12:00:00Z");
+    assert.equal(postedAtToIso("3 days ago", now), "2026-10-31T12:00:00.000Z");
+    assert.equal(postedAtToIso("21 hours ago", now), "2026-11-02T15:00:00.000Z");
+    assert.equal(postedAtToIso(undefined, now), undefined);
+  });
+  it("prefers the employer's own apply link over aggregators", () => {
+    const job = {
+      title: "Senior Software Engineer",
+      company_name: "ArgusRecruit",
+      location: "Anywhere",
+      apply_options: [
+        { title: "LinkedIn", link: "https://www.linkedin.com/jobs/view/1" },
+        { title: "ArgusRecruit", link: "https://argusrecruit.com/jobs/AR-SSE01/" },
+      ],
+    };
+    assert.equal(pickApplyUrl(job), "https://argusrecruit.com/jobs/AR-SSE01/");
+    assert.equal(toBoardJob(job)?.remote, true);
+    assert.equal(toBoardJob({ ...job, apply_options: [job.apply_options[0]!] }), null);
+  });
+});
+
+describe("watched sites", () => {
+  it("finds the job index of a page", () => {
+    assert.equal(indexUrlFor("https://argusrecruit.com/jobs/AR-SSE01/"), "https://argusrecruit.com/jobs/");
+    assert.equal(indexUrlFor("https://acme.com/senior-engineer"), null);
+  });
+  it("lists job links under the index with their card heading", () => {
+    const html = `
+      <a href="/jobs/">All jobs</a>
+      <a class="job-card" href="/jobs/AR-SSE01/"><div><h3>Senior Software Engineer</h3><span>Remote</span></div></a>
+      <a href="/jobs/AR-FDE01/">Forward Deployed Engineer</a>
+      <a href="/about/">About</a>
+      <a href="https://other.com/jobs/x">Elsewhere</a>`;
+    assert.deepEqual(jobLinks(html, "https://argusrecruit.com/jobs/"), [
+      { url: "https://argusrecruit.com/jobs/AR-SSE01/", title: "Senior Software Engineer" },
+      { url: "https://argusrecruit.com/jobs/AR-FDE01/", title: "Forward Deployed Engineer" },
+    ]);
+  });
+});
+
+// ── Aggregators: RemoteOK, Himalayas, Wellfound ─────────────────────────────
+
+import { himalayasListings, parseWellfoundTitle, remoteOkListings, wellfoundListings } from "../sources/aggregators.ts";
+import { matchPosting, normalizeTitle, titleSimilarity } from "../sources/company-boards.ts";
+import { isBlocked } from "../filters.ts";
+import { fromListing } from "../verify.ts";
+
+describe("employer posting match", () => {
+  it("normalizes titles", () => {
+    assert.equal(normalizeTitle("Senior Software Engineer (Remote, EU)"), "senior software engineer");
+    assert.equal(normalizeTitle("Full-Stack Engineer – Remote"), "full stack engineer");
+  });
+  it("matches the same role, not a neighbour", () => {
+    const board = [
+      { title: "Senior Software Engineer, Platform", url: "https://jobs.ashbyhq.com/acme/1", location: "Remote", remote: true },
+      { title: "Senior Software Engineer", url: "https://jobs.ashbyhq.com/acme/2", location: "Remote", remote: true },
+      { title: "Engineering Manager", url: "https://jobs.ashbyhq.com/acme/3", location: "Remote", remote: true },
+    ];
+    assert.equal(matchPosting(board, "Senior Software Engineer (Remote)")?.url, "https://jobs.ashbyhq.com/acme/2");
+    assert.equal(matchPosting(board, "Data Analyst"), undefined);
+    assert.ok(titleSimilarity("Senior Software Engineer, Platform", "Senior Software Engineer") < 0.8);
+  });
+});
+
+describe("aggregator listings", () => {
+  const recent = new Date(Date.now() - 3_600_000).toISOString();
+
+  it("RemoteOK: relevant, recent, not country-restricted; ATS link in the description wins", () => {
+    const api = [
+      { legal: "API Terms of Service" },
+      { position: "AI ML Engineer", company: "Docusketch", date: recent, location: "", url: "https://remoteOK.com/remote-jobs/x-1", description: "Apply at https://jobs.lever.co/docusketch/abc-123" },
+      { position: "Account Executive", company: "Capmo", date: recent, location: "", url: "https://remoteok.com/remote-jobs/x-2" },
+      { position: "Backend Engineer", company: "Acme", date: recent, location: "United States", url: "https://remoteok.com/remote-jobs/x-3" },
+      { position: "Backend Engineer", company: "Old", date: "2020-01-01T00:00:00Z", location: "", url: "https://remoteok.com/remote-jobs/x-4" },
+    ];
+    const out = remoteOkListings(api);
+    assert.equal(out.length, 1);
+    assert.equal(out[0]!.url, "https://remoteok.com/remote-jobs/x-1");
+    assert.equal(out[0]!.atsLink, "https://jobs.lever.co/docusketch/abc-123");
+    assert.equal(out[0]!.listing.applicantLocations, undefined);
+  });
+
+  it("Himalayas: keeps who-may-apply lists and strips tracking", () => {
+    const out = himalayasListings([
+      { title: "Senior Ruby on Rails Developer", companyName: "OnTheGoSystems", pubDate: Date.now() / 1000 - 3600, locationRestrictions: ["Turkey", "Germany"], guid: "https://himalayas.app/companies/otgs/jobs/rails" },
+      { title: "Software Engineer", companyName: "Alien Intellect", pubDate: Date.now() / 1000 - 3600, locationRestrictions: [], applicationLink: "https://himalayas.app/companies/ai/jobs/se?utm_source=api" },
+      { title: "Customer Support Specialist", companyName: "X", pubDate: Date.now() / 1000, locationRestrictions: [], guid: "https://himalayas.app/x" },
+    ]);
+    assert.equal(out.length, 2);
+    assert.deepEqual(out[0]!.listing.applicantLocations, ["Turkey", "Germany"]);
+    assert.equal(out[1]!.url, "https://himalayas.app/companies/ai/jobs/se");
+    assert.deepEqual(out[1]!.listing.applicantLocations, []);
+  });
+
+  it("Wellfound: parses Brave result titles", () => {
+    assert.deepEqual(parseWellfoundTitle("Senior AI Engineer at Niuro • Remote • Remote (Work from Home) | Wellfound"), {
+      title: "Senior AI Engineer", company: "Niuro", places: ["Remote", "Remote (Work from Home)"], remote: true,
+    });
+    assert.equal(parseWellfoundTitle("Product Engineer at Docflow labs • Los Angeles | Wellfound")?.remote, false);
+    assert.equal(parseWellfoundTitle("Frontend Engineer at Confidential Company • California | Wellfound"), null);
+    assert.equal(parseWellfoundTitle("Find Startup Jobs Near You and Remote Jobs | Wellfound"), null);
+    const out = wellfoundListings([
+      { url: "https://wellfound.com/jobs/4824735-senior-ai-engineer", title: "Senior AI Engineer at Niuro • Remote • Remote (Work from Home) | Wellfound" },
+      { url: "https://wellfound.com/company/niuro", title: "Niuro | Wellfound" },
+    ]);
+    assert.equal(out.length, 1);
+    assert.equal(out[0]!.listing.via, "wellfound");
+  });
+});
+
+describe("listing fallback in verify", () => {
+  const saved = process.env.CANDIDATE_COUNTRY;
+  before(() => { process.env.CANDIDATE_COUNTRY = "Turkey"; });
+  after(() => { saved === undefined ? delete process.env.CANDIDATE_COUNTRY : (process.env.CANDIDATE_COUNTRY = saved); });
+  const job = {
+    title: "Senior Ruby on Rails Developer — OnTheGoSystems",
+    url: "https://himalayas.app/companies/otgs/jobs/rails",
+    description: "",
+    extraSnippets: [],
+    foundByQueries: ["source:himalayas"],
+    sourceDomain: "himalayas.app",
+    discoveredAt: new Date().toISOString(),
+  };
+
+  it("aggregator domains pass only when the job carries a listing", () => {
+    assert.ok(isBlocked(job));
+    assert.ok(!isBlocked({ ...job, listing: { via: "himalayas" } }));
+  });
+
+  it("a listing open to the candidate's country is a fresh remote candidate", () => {
+    const listing = { via: "himalayas" as const, company: "OnTheGoSystems", datePosted: new Date().toISOString(), applicantLocations: ["Germany", "Turkey"], remote: true };
+    const v = fromListing({ ...job, listing }, listing, new Date().toISOString(), []);
+    assert.equal(v.geographicScope, "home");
+    assert.equal(classifyVerificationOutcome(v), "verified-fresh");
+  });
+
+  it("worldwide listing ([]), restricted listing, and undated Wellfound listing", () => {
+    const now = new Date().toISOString();
+    const ww = { via: "himalayas" as const, datePosted: now, applicantLocations: [], remote: true };
+    assert.equal(fromListing({ ...job, listing: ww }, ww, now, []).geographicScope, "worldwide");
+    const us = { via: "himalayas" as const, datePosted: now, applicantLocations: ["United States"], remote: true };
+    assert.equal(classifyVerificationOutcome(fromListing({ ...job, listing: us }, us, now, [])), "rejected");
+    const wf = { via: "wellfound" as const, remote: true, description: "Remote (Work from Home)" };
+    assert.equal(classifyVerificationOutcome(fromListing({ ...job, listing: wf }, wf, now, [])), "uncertain");
   });
 });

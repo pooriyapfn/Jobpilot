@@ -1,5 +1,6 @@
 import { candidate, escapeRe } from "./candidate.ts";
 import { ATS_DOMAINS } from "./config.ts";
+import { REGIONS, findRegion } from "./regions.ts";
 import type {
   Freshness,
   GeographicScope,
@@ -205,7 +206,6 @@ const STRONG_BODY_WORLDWIDE_PATTERNS = [
   /\bavailable\s+worldwide\b/i,
   /\bwork(?:ing)?\s+from\s+anywhere\b/i,
 ];
-const EMEA_PATTERN = /\bEMEA\b/i;
 
 const AUTHORIZATION_PHRASES = [
   /\bwork\s+authorization\b/i,
@@ -263,12 +263,21 @@ const RESTRICTION_PHRASES = [
 
 const AMBIGUOUS_PATTERNS = [/\bEurope\b/i, /\bEuropean Union\b/i, /\bEU\b/];
 
+/** First candidate region named in `text`. Regions not in REGIONS (custom CANDIDATE_REGIONS) match by name. */
+export function openRegionIn(text: string): string | undefined {
+  for (const name of candidate().regions) {
+    const pattern = findRegion(name)?.pattern ?? new RegExp(`\\b${escapeRe(name)}\\b`, "i");
+    if (pattern.test(text)) return name;
+  }
+  return undefined;
+}
+
 export function classifyGeographicScope(
   jobLocation: string[],
   displayedLocation: string,
   bodyText: string,
   title: string
-): { scope: GeographicScope; restrictedCountry?: string; evidence: string[] } {
+): { scope: GeographicScope; restrictedCountry?: string; region?: string; evidence: string[] } {
   const evidence: string[] = [];
   const { countryRe, remoteCountry, countryRemote } = countryRegexes();
   const locStr = jobLocation.join(" ");
@@ -368,16 +377,24 @@ export function classifyGeographicScope(
     }
   }
 
-  // 9. EMEA in location strings (no title)
-  if (EMEA_PATTERN.test(openScopeStrings)) {
-    evidence.push("EMEA in location");
-    return { scope: "emea", evidence };
+  // 9. A hiring region open to the candidate (CANDIDATE_REGIONS / derived from country), e.g. "Europe / MENA"
+  const open = openRegionIn(openScopeStrings);
+  if (open) {
+    evidence.push(`open region in location: ${open}`);
+    return { scope: "region", region: open, evidence };
   }
 
-  // 10. Europe/EU → uncertain
+  // 10. Europe/EU the candidate isn't clearly inside → uncertain (LLM judges)
   if (AMBIGUOUS_PATTERNS.some((p) => p.test(openScopeStrings))) {
     evidence.push("ambiguous EU/Europe signal");
     return { scope: "unknown", evidence };
+  }
+
+  // 11. Only regions the candidate is outside of ("Remote — LATAM" for a candidate in Turkey). Needs a known country.
+  const closed = candidate().country ? REGIONS.find((r) => r.pattern.test(openScopeStrings)) : undefined;
+  if (closed) {
+    evidence.push(`region outside candidate's: ${closed.name}`);
+    return { scope: "specific-country", restrictedCountry: closed.name, evidence };
   }
 
   // No deterministic signal → unknown
@@ -394,7 +411,7 @@ export function scopeToLocationEligibility(scope: GeographicScope): LocationElig
     case "home":
       return "home-ok";
     case "worldwide":
-    case "emea":
+    case "region":
       return "eligible";
     case "specific-country":
       return "restricted";

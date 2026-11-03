@@ -225,11 +225,18 @@ export function isRelevantTitle(title: string): boolean {
   return ROLE_TITLE_INCLUDE.test(title) && !ROLE_TITLE_EXCLUDE.test(title);
 }
 
+// Set per run from the search window (index.ts); never below 2 days — board dates are exact, keep some overlap.
+let maxAgeDays = SOURCE_MAX_AGE_DAYS;
+export function setSourceMaxAgeDays(days: number): void {
+  maxAgeDays = Math.max(2, Math.min(days, SOURCE_MAX_AGE_DAYS));
+}
+export const sourceMaxAgeDays = () => maxAgeDays;
+
 function isFreshEnough(postedAt?: string): boolean {
   if (!postedAt) return true; // unknown date → let verify decide
   const t = Date.parse(postedAt);
   if (Number.isNaN(t)) return true;
-  return Date.now() - t <= SOURCE_MAX_AGE_DAYS * 86_400_000;
+  return Date.now() - t <= maxAgeDays * 86_400_000;
 }
 
 /** Cheap pre-filter: role title, remote, recent, not obviously country-restricted. */
@@ -244,7 +251,8 @@ export function toSourceJobs(jobs: BoardJob[], company: string, sourceTag: strin
     const geo = classifyGeographicScope([j.location], j.location, "", j.title);
     if (geo.scope === "specific-country") continue;
     // "Remote" + an unrecognised place ("Korea", "Toronto; Ottawa") = remote within that place.
-    // Keep only bare "Remote" or an explicit open scope (worldwide / EMEA / candidate's country).
+    // Keep only bare "Remote" or an explicit open scope (worldwide / open region / candidate's country);
+    // EMEA/Europe with no candidate country set stays for verify + the LLM to judge.
     const bare = j.location.replace(/remote|hybrid|anywhere|[;,()\-|/]/gi, "").trim();
     if (geo.scope === "unknown" && bare && !/^(europe|emea|global|worldwide)$/i.test(bare)) continue;
 

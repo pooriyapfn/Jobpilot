@@ -1,12 +1,21 @@
 import chalk from "chalk";
-import { mkdir, writeFile } from "fs/promises";
-import { SEARCH_QUERIES } from "./config.ts";
-import { isExcluded, isExcludedATSCompany, deduplicate } from "./filters.ts";
-import { runAllSearches } from "./search.ts";
+import { mkdir, readFile, writeFile } from "fs/promises";
+import { searchQueries } from "./config.ts";
+import { deduplicate, isBlocked } from "./filters.ts";
+import { braveFreshness, runAllSearches, searchWindowDays } from "./search.ts";
+import { setSourceMaxAgeDays } from "./sources/boards.ts";
+import { resolvedNote, resolveListings, WELLFOUND_QUERIES, wellfoundListings } from "./sources/aggregators.ts";
+import { harvestBoards } from "./sources/company-boards.ts";
 import { ALL_SOURCES, runSources, type SourceName } from "./sources/index.ts";
 import type { SearchJob, RunStats } from "./types.ts";
 import { OUTPUT_DIR } from "./paths.ts";
 
+// When each part last ran — the next run only looks back that far (plus overlap).
+interface LastRun {
+  brave?: string;
+  boards?: string;
+}
+const LAST_RUN_PATH = `${OUTPUT_DIR}last-run.json`;
 
 async function main() {
   const runAt = new Date().toISOString();
@@ -28,15 +37,37 @@ async function main() {
     queries: {},
   };
 
-  // --only=yc,hn,funding,watchlist,brave  (default: everything)
+  // --only=brave,wellfound,watchlist,funding,yc,hn,google,sites,remoteok,himalayas,known  (default: everything)
   const onlyArg = process.argv.find((a) => a.startsWith("--only="))?.slice("--only=".length);
   const only = onlyArg ? new Set(onlyArg.split(",")) : null;
   const useBrave = !only || only.has("brave");
+  const useWellfound = !only || only.has("wellfound");
   const sources = ALL_SOURCES.filter((s) => !only || only.has(s));
 
-  const queryResults = useBrave ? await runAllSearches(SEARCH_QUERIES, onRequest) : [];
+  const lastRun: LastRun = await readFile(LAST_RUN_PATH, "utf8").then((s) => JSON.parse(s) as LastRun, () => ({}));
+  const braveDays = searchWindowDays(lastRun.brave);
+  const boardDays = searchWindowDays(lastRun.boards);
+  setSourceMaxAgeDays(boardDays);
+  const freshness = braveFreshness(braveDays);
+  console.log(chalk.dim(`  Window: Brave ${braveDays}d (${freshness}), job boards ${Math.max(2, boardDays)}d\n`));
 
-  // Non-Brave sources: board APIs for YC / freshly-funded / watchlist companies, HN hiring
+  const queryResults = useBrave ? await runAllSearches(searchQueries(), onRequest, freshness) : [];
+  // Every ATS board Brave surfaced joins the known-company registry; the "known" source polls it in full
+  const harvested = await harvestBoards(queryResults.flatMap((q) => q.results.map((r) => r.url)), "brave");
+  if (harvested) console.log(chalk.dim(`  ${harvested} new company boards from search results`));
+
+  // Wellfound: no public API and a bot check on its pages, so jobs come from Brave's index of them,
+  // then get matched to the company's own posting. A month of results: Brave indexes Wellfound slowly.
+  if (useWellfound && process.env.BRAVE_API_KEY) {
+    const found = await runAllSearches(WELLFOUND_QUERIES, onRequest, "pm");
+    const listings = wellfoundListings(found.flatMap((q) => q.results));
+    const unique = [...new Map(listings.map((l) => [l.url, l])).values()];
+    const r = await resolveListings(unique, "wellfound");
+    console.log(chalk.dim(`  source:wellfound: ${resolvedNote(unique.length, r)}`));
+    queryResults.push({ query: "source:wellfound", results: r.jobs });
+  }
+
+  // Non-Brave sources: board APIs for YC / freshly-funded / watchlist / known companies, HN, Google Jobs, watched sites
   const sourceResults = await runSources(sources as SourceName[]);
   for (const r of sourceResults) {
     const label = `source:${r.source}`;
@@ -50,7 +81,7 @@ async function main() {
 
   // Flatten raw results
   for (const { query, results } of queryResults) {
-    const accepted = results.filter((r) => !isExcluded(r.url) && !isExcludedATSCompany(r.url));
+    const accepted = results.filter((r) => !isBlocked(r));
     console.log(
       chalk.dim(`  ${query}`) +
         chalk.green(` → ${accepted.length}`) +
@@ -74,7 +105,7 @@ async function main() {
   const jobsWithQuery: SearchJob[] = [];
 
   for (const { query, ...rest } of allRaw) {
-    if (isExcluded(rest.url) || isExcludedATSCompany(rest.url)) continue;
+    if (isBlocked(rest)) continue;
     jobsWithQuery.push({ ...rest, foundByQueries: [query] });
   }
 
@@ -109,6 +140,11 @@ async function main() {
     writeFile(
       `${OUTPUT_DIR}stats.json`,
       JSON.stringify(stats, null, 2),
+      "utf8"
+    ),
+    writeFile(
+      LAST_RUN_PATH,
+      JSON.stringify({ brave: useBrave ? runAt : lastRun.brave, boards: sources.length ? runAt : lastRun.boards }, null, 2),
       "utf8"
     ),
   ]);

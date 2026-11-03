@@ -8,7 +8,7 @@ import { OUTPUT_DIR } from "./paths.ts";
 
 const DB_PATH = process.env["DB_PATH"] ?? `${OUTPUT_DIR}jobs.db`;
 const ELIGIBILITY_THRESHOLD = 0.85;
-const ELIGIBLE_SCOPES = new Set(["home", "worldwide", "emea"]);
+const ELIGIBLE_SCOPES = new Set(["home", "worldwide", "region", "emea"]); // "emea": rows from before regions
 
 async function readJobFile(name: string): Promise<VerifiedJob[]> {
   try {

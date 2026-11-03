@@ -6,6 +6,22 @@ export interface SearchJob {
   foundByQueries: string[];
   sourceDomain: string;
   discoveredAt: string;
+  /**
+   * Structured data from an aggregator API (RemoteOK, Himalayas, Wellfound search result). Set when the job
+   * couldn't be matched to the employer's own posting: verify falls back to it if the page blocks fetches,
+   * and the aggregator domain isn't treated as excluded.
+   */
+  listing?: AggregatorListing;
+}
+
+export interface AggregatorListing {
+  via: "remoteok" | "himalayas" | "wellfound";
+  company?: string;
+  datePosted?: string;
+  /** Who may apply. [] = worldwide; undefined = not stated */
+  applicantLocations?: string[];
+  remote?: boolean;
+  description?: string;
 }
 
 export type PageType =
@@ -24,7 +40,7 @@ export type Freshness =
 
 export type LocationEligibility =
   | "home-ok"    // candidate's own country explicitly mentioned (CANDIDATE_COUNTRY)
-  | "eligible"   // Strong positive: worldwide / anywhere / global / EMEA
+  | "eligible"   // Strong positive: worldwide / anywhere / global / a region open to the candidate
   | "uncertain"  // No location signals — goes to LLM
   | "restricted"; // US/Canada/UK/India/specific country only
 
@@ -41,12 +57,13 @@ export type EvidenceSource =
   | "json-ld"
   | "visible-html"
   | "search-snippet"
+  | "aggregator-api"
   | "llm";
 
 export type GeographicScope =
   | "home"       // candidate's own country (CANDIDATE_COUNTRY)
   | "worldwide"
-  | "emea"
+  | "region"     // a hiring region open to the candidate (EMEA, MENA, …) — see VerifiedJob.openRegion
   | "specific-country"
   | "unknown";
 
@@ -62,12 +79,24 @@ export interface AtsJobData {
   validThrough?: string;
 }
 
+export interface Salary {
+  min?: number;
+  max?: number;
+  currency: string;
+  unit: string;              // HOUR | DAY | WEEK | MONTH | YEAR
+  monthlyUsd?: number;       // max (or min) per month in USD; unset when the currency has no known rate
+}
+
 export interface VerifiedJob extends SearchJob {
   company?: string;
   datePosted?: string;
   validThrough?: string;
   employmentType?: string;
   jobLocation?: string[];
+  applicantLocations?: string[]; // JSON-LD applicantLocationRequirements — who may apply (beats office jobLocation)
+  openRegion?: string;           // set when geographicScope === "region", e.g. "MENA"
+  salary?: Salary;
+  agency?: boolean;              // posted by a recruiting agency — company is the agency, not the employer
   remote?: boolean;            // backward compat — derived from workMode
   ageHours?: number;
   freshness: Freshness;
@@ -148,4 +177,6 @@ export interface RunStats {
   uniqueResults: number;
   queries: Record<string, QueryStats>;
   verification?: VerificationStats;
+  /** Per query / source: jobs verified and how many survived as candidates (fresh, needs-date, uncertain) */
+  yield?: Record<string, { verified: number; candidates: number }>;
 }

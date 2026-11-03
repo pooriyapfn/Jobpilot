@@ -1,9 +1,12 @@
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { EngineInfo, JobEvent, JobInfo, KnowledgeDocument, KnowledgeFile } from "@jobpilot/contracts";
+import { createServer } from "node:http";
+import { EngineInfo, JobEvent, JobInfo, JobListing, JobListingDetail, KnowledgeDocument, KnowledgeFile } from "@jobpilot/contracts";
 import { z } from "zod";
 
 // config reads JOBPILOT_HOME at import time, so set it first and import the server afterwards.
@@ -73,6 +76,222 @@ describe("info + data routes", () => {
     assert.equal((await post("/api/status/x", { status: "bogus" })).status, 400);
     assert.equal((await post("/api/answers/x", {})).status, 400);
     assert.equal((await post("/api/apply/x", {})).status, 404);
+  });
+});
+
+describe("application detail + answer confirmation", () => {
+  const app = {
+    id: "app1", url: "https://jobs.example.com/1", applyUrl: "https://jobs.example.com/1/apply", title: "Engineer", company: "Acme",
+    jd: "Build things.", status: "prepared" as const, updatedAt: "2026-10-28T12:00:00.000Z",
+    fields: [
+      { id: "how", selector: "#how", label: "How did you hear?", type: "text" as const, required: false },
+      { id: "blank", selector: "#blank", label: "Anything else?", type: "text" as const, required: false },
+    ],
+    answers: { how: { value: "LinkedIn", confident: false }, blank: { value: "", confident: false } },
+  };
+  before(async () => (await import("../src/db.ts")).saveApp(app));
+
+  it("GET /api/apps/:id returns the full application, including the job description", async () => {
+    const got = await (await call("/api/apps/app1")).json();
+    assert.equal(got.jd, "Build things.");
+    assert.equal((await call("/api/apps/nope")).status, 404);
+    const [summary] = await (await call("/api/apps")).json();
+    assert.equal(summary.jd, undefined); // the list stays light
+  });
+  it("an unchanged, unsure answer is confirmed; an unchanged empty one is not", async () => {
+    await post("/api/answers/app1", { answers: { how: "LinkedIn", blank: "" } });
+    const got = await (await call("/api/apps/app1")).json();
+    assert.deepEqual(got.answers.how, { value: "LinkedIn", confident: true });
+    assert.deepEqual(got.answers.blank, { value: "", confident: false });
+  });
+});
+
+describe("jobs repository (listings)", () => {
+  const dir = join(home, "data/job-search");
+  const feed = (title: string, url: string, extra = {}) => ({
+    title, url, company: "Acme", description: `${title} description`, extraSnippets: [], datePosted: "2026-10-20T00:00:00Z", ...extra,
+  });
+  const list = async () => JobListing.array().parse(await (await call("/api/listings")).json());
+  const byTitle = async (t: string) => (await list()).find((l) => l.title === t)!;
+  const mkApp = async (id: string, extra = {}) => {
+    const { saveApp } = await import("../src/db.ts");
+    saveApp({ id, url: `https://x.test/${id}`, applyUrl: "", title: id, company: "Co", jd: "jd", status: "prepared", fields: [], answers: {}, updatedAt: "", ...extra });
+  };
+
+  before(() => {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "eligible-jobs.json"), JSON.stringify([
+      feed("Engineer A", "https://x.test/a", { description: "&lt;div&gt;&lt;h2&gt;About&lt;/h2&gt;&lt;p&gt;We build &amp;amp; ship.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;One&lt;/li&gt;&lt;/ul&gt;&lt;style&gt;.x{color:red}&lt;/style&gt;&lt;/div&gt;" }),
+      feed("Engineer B", "https://x.test/b", { datePosted: "garbage" }),
+    ]));
+    writeFileSync(join(dir, "uncertain.json"), JSON.stringify([feed("Engineer C", "https://x.test/c", { workMode: "hybrid" })]));
+  });
+
+  it("collects search results with posted/added dates, an eligibility and a reason", async () => {
+    const a = await byTitle("Engineer A");
+    assert.equal(a.eligibility, "eligible");
+    assert.equal(a.eligibilitySource, "search");
+    assert.equal(a.datePosted, "2026-10-20T00:00:00.000Z");
+    assert.equal((await byTitle("Engineer B")).datePosted, undefined); // an unparseable date is dropped, not invented
+    const c = await byTitle("Engineer C");
+    assert.equal(c.eligibility, "review");
+    assert.match(c.eligibilityReason ?? "", /hybrid/);
+    for (const l of await list()) assert.ok(Date.parse(l.addedAt) > 0 && Date.parse(l.updatedAt) > 0 && l.snippet);
+  });
+  it("never shows HTML: previews and the full text are plain text with light markers", async () => {
+    const a = await byTitle("Engineer A");
+    assert.equal(a.snippet, "About We build & ship. One");
+    const detail = JobListingDetail.parse(await (await call(`/api/listings/${a.id}`)).json());
+    assert.equal(detail.description, "## About\n\nWe build & ship.\n\n- One");
+    assert.doesNotMatch(JSON.stringify(await list()), /<\/?(div|span|h2|p|style)|&lt;|&amp;/);
+    assert.equal((await call("/api/listings/nope")).status, 404);
+  });
+  it("lists applications that predate the repository; a submitted one has an applied date", async () => {
+    await mkApp("old1", { status: "submitted", updatedAt: "2026-10-01T00:00:00.000Z" });
+    const { saveApp, getApp } = await import("../src/db.ts");
+    saveApp(getApp("old1")!); // keeps updatedAt realistic
+    const old = (await list()).find((l) => l.id === "old1")!;
+    assert.equal(old.eligibility, "not-evaluated"); // applying says nothing about eligibility
+    assert.equal(old.applicationStatus, "submitted");
+    assert.ok(old.appliedAt);
+    assert.equal(old.resumeReady, false);
+  });
+  it("eligibility, applied and note are independent", async () => {
+    await mkApp("p1");
+    await list();
+    assert.equal((await post("/api/listings/p1/eligibility", { eligibility: "not-eligible" })).status, 200);
+    let l = (await list()).find((x) => x.id === "p1")!;
+    assert.equal(l.eligibility, "not-eligible");
+    assert.equal(l.eligibilitySource, "you");
+    assert.equal(l.appliedAt, undefined);
+    assert.equal((await import("../src/db.ts")).getApp("p1")!.status, "skipped"); // left the review queue
+
+    assert.equal((await post("/api/listings/p1/note", { note: "Recruiter is Sam" })).status, 200);
+    assert.equal((await post("/api/listings/p1/applied", {})).status, 200);
+    l = (await list()).find((x) => x.id === "p1")!;
+    assert.equal(l.eligibility, "not-eligible"); // unchanged by applying
+    assert.equal(l.userNote, "Recruiter is Sam"); // unchanged by applying
+    assert.ok(l.appliedAt);
+    assert.equal(l.applicationStatus, "submitted");
+
+    await post("/api/listings/p1/eligibility", { eligibility: "eligible" });
+    l = (await list()).find((x) => x.id === "p1")!;
+    assert.equal(l.eligibility, "eligible");
+    assert.ok(l.appliedAt && l.userNote); // still there
+    assert.equal((await post("/api/listings/p1/eligibility", { eligibility: "bogus" })).status, 400);
+    assert.equal((await post("/api/listings/nope/eligibility", { eligibility: "eligible" })).status, 404);
+  });
+  it("a note you wrote, and a state you chose, survive the next search", async () => {
+    const b = await byTitle("Engineer B");
+    await post(`/api/listings/${b.id}/eligibility`, { eligibility: "not-eligible" });
+    await post(`/api/listings/${b.id}/note`, { note: "  keep me  " });
+    writeFileSync(join(dir, "eligible-jobs.json"), JSON.stringify([feed("Engineer B", "https://x.test/b", { description: "changed" })]) + " ");
+    const again = (await list()).find((l) => l.id === b.id)!;
+    assert.equal(again.eligibility, "not-eligible");
+    assert.equal(again.userNote, "  keep me  ");
+    await post(`/api/listings/${b.id}/note`, { note: "   " });
+    assert.equal((await list()).find((l) => l.id === b.id)!.userNote, undefined); // blank clears
+    assert.equal((await post(`/api/listings/${b.id}/note`, { note: "x".repeat(10_001) })).status, 413);
+  });
+  it("reports a resume as ready only when the file exists, and match separately from eligibility", async () => {
+    const resume = join(home, "data/resumes/r1.docx");
+    mkdirSync(join(home, "data/resumes"), { recursive: true });
+    writeFileSync(resume, "docx");
+    await mkApp("r1", { resumePath: resume, fit: "POSSIBLE_FIT" });
+    await mkApp("r2", { resumePath: join(home, "data/resumes/gone.docx") });
+    await mkApp("r3", { status: "skip-fit", note: "Needs 10y of Rust" });
+    const got = await list();
+    assert.equal(got.find((l) => l.id === "r1")!.resumeReady, true);
+    assert.equal(got.find((l) => l.id === "r1")!.matchFit, "POSSIBLE_FIT");
+    assert.equal(got.find((l) => l.id === "r2")!.resumeReady, false);
+    const r3 = got.find((l) => l.id === "r3")!;
+    assert.equal(r3.matchFit, "SKIP");
+    assert.equal(r3.eligibility, "not-evaluated"); // "not a fit" never turns into "not eligible"
+    const detail = JobListingDetail.parse(await (await call("/api/listings/r3")).json());
+    assert.equal(detail.matchNotes, "Needs 10y of Rust");
+  });
+  it("remove keeps the application by default; 'everything' deletes it and its resume files", async () => {
+    const { getApp } = await import("../src/db.ts");
+    assert.equal((await call("/api/listings/r2", { method: "DELETE" })).status, 200);
+    assert.ok(getApp("r2")); // history kept
+    assert.ok(!(await list()).some((l) => l.id === "r2"));
+    assert.equal((await call("/api/listings/r2", { method: "DELETE" })).status, 404);
+
+    assert.equal((await call("/api/listings/r1?scope=everything", { method: "DELETE" })).status, 200);
+    assert.equal(getApp("r1"), undefined);
+    assert.ok(!existsSync(join(home, "data/resumes/r1.docx")));
+    assert.equal((await call("/api/listings/p1?scope=bogus", { method: "DELETE" })).status, 400);
+
+    const a = await byTitle("Engineer A");
+    await call(`/api/listings/${a.id}`, { method: "DELETE" });
+    writeFileSync(join(dir, "eligible-jobs.json"), JSON.stringify([feed("Engineer A", "https://x.test/a")]) + "  ");
+    assert.ok(!(await list()).some((l) => l.id === a.id)); // a later search doesn't bring it back
+  });
+  it("guards: regenerate needs an application; unknown jobs 404", async () => {
+    const c = await byTitle("Engineer C");
+    assert.equal((await post(`/api/listings/${c.id}/regenerate-resume`, {})).status, 409);
+    assert.equal((await post("/api/listings/nope/prepare", {})).status, 404);
+    assert.equal((await post("/api/listings/nope/assess", {})).status, 404);
+  });
+  it("adds a pasted link: reads title, company and date; same link twice is one job", async () => {
+    const page = createServer((_, res) =>
+      res.writeHead(200, { "content-type": "text/html" }).end(
+        `<html><head><title>x</title><script type="application/ld+json">${JSON.stringify({
+          "@type": "JobPosting", title: "Platform Engineer", datePosted: "2026-10-30", description: "<p>Run the <b>platform</b>.</p>",
+          hiringOrganization: { name: "Globex" }, jobLocationType: "TELECOMMUTE",
+        })}</script></head><body><h1>Platform Engineer</h1></body></html>`,
+      ),
+    );
+    await new Promise<void>((r) => page.listen(0, "127.0.0.1", r));
+    try {
+      const url = `http://127.0.0.1:${(page.address() as { port: number }).port}/jobs/1#apply`;
+      const added = JobListing.parse(await (await post("/api/listings", { url })).json());
+      assert.equal(added.title, "Platform Engineer");
+      assert.equal(added.company, "Globex");
+      assert.equal(added.datePosted, "2026-10-30T00:00:00.000Z");
+      assert.equal(added.snippet, "Run the platform.");
+      assert.ok(["eligible", "review", "not-eligible"].includes(added.eligibility));
+      assert.ok(added.eligibilityReason);
+      const again = JobListing.parse(await (await post("/api/listings", { url })).json());
+      assert.equal(again.id, added.id);
+      assert.equal((await list()).filter((l) => l.id === added.id).length, 1);
+    } finally {
+      page.close();
+    }
+  });
+  it("rejects non-links; a page it can't read is kept as not evaluated, with a title from the URL", async () => {
+    assert.equal((await post("/api/listings", { url: "not a url" })).status, 400);
+    assert.equal((await post("/api/listings", { url: "file:///etc/passwd" })).status, 400);
+    const dead = JobListing.parse(await (await post("/api/listings", { url: "http://127.0.0.1:1/jobs/senior-dev" })).json());
+    assert.equal(dead.eligibility, "not-evaluated");
+    assert.equal(dead.title, "senior dev");
+    assert.match(dead.eligibilityReason ?? "", /Couldn't read/);
+    assert.equal(dead.datePosted, undefined);
+  });
+  it("migrates a v1 table (mixed state column) without losing anything", () => {
+    const dbFile = join(home, "legacy.db");
+    const legacy = new DatabaseSync(dbFile);
+    legacy.exec(`CREATE TABLE applications (id TEXT PRIMARY KEY, status TEXT NOT NULL, data TEXT NOT NULL, updated_at TEXT NOT NULL);
+      CREATE TABLE listings (id TEXT PRIMARY KEY, url TEXT NOT NULL UNIQUE, title TEXT NOT NULL, company TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
+        date_posted TEXT, added_at TEXT NOT NULL, state TEXT NOT NULL, state_source TEXT NOT NULL DEFAULT 'auto', location TEXT, note TEXT, deleted_at TEXT);`);
+    const ins = legacy.prepare("INSERT INTO listings (id, url, title, company, added_at, state, state_source, note) VALUES (?, ?, ?, 'Co', '2026-10-01T00:00:00.000Z', ?, ?, ?)");
+    ins.run("n", "https://l.test/n", "New one", "new", "auto", "unreadable");
+    ins.run("e", "https://l.test/e", "Eligible one", "eligible", "user", null);
+    ins.run("v", "https://l.test/v", "Review one", "review", "auto", "hybrid");
+    ins.run("x", "https://l.test/x", "No one", "not-eligible", "user", null);
+    ins.run("a", "https://l.test/a", "Applied one", "applied", "auto", null);
+    legacy.close();
+    const out = execFileSync(process.execPath, ["--experimental-strip-types", "--disable-warning=ExperimentalWarning", "-e",
+      `const { db } = await import(${JSON.stringify(new URL("../src/db.ts", import.meta.url).href)});
+       console.log(JSON.stringify(db.prepare("SELECT id, eligibility, eligibility_source, eligibility_reason, applied_at IS NOT NULL AS applied FROM listings ORDER BY id").all()));`],
+      { env: { ...process.env, APPLY_DB: dbFile }, encoding: "utf8" });
+    assert.deepEqual(JSON.parse(out), [
+      { id: "a", eligibility: "not-evaluated", eligibility_source: null, eligibility_reason: null, applied: 1 },
+      { id: "e", eligibility: "eligible", eligibility_source: "you", eligibility_reason: null, applied: 0 },
+      { id: "n", eligibility: "not-evaluated", eligibility_source: null, eligibility_reason: "unreadable", applied: 0 },
+      { id: "v", eligibility: "review", eligibility_source: "search", eligibility_reason: "hybrid", applied: 0 },
+      { id: "x", eligibility: "not-eligible", eligibility_source: "you", eligibility_reason: null, applied: 0 },
+    ]);
   });
 });
 

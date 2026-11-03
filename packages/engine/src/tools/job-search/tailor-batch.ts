@@ -110,7 +110,7 @@ async function main() {
         ...job,
         fitClassification: result.fit.classification,
         fitReasons: result.fit.reasons,
-        fitGaps: result.fit.gaps,
+        fitGaps: result.fit.gaps.map((g) => `${g.type}: ${g.detail}`),
         resumeMdPath: mdPath,
         resumeDocxPath: docxPath,
       };
@@ -129,7 +129,7 @@ async function main() {
           ...job,
           fitClassification: "SKIP",
           fitReasons: err.fit.reasons,
-          fitGaps: err.fit.gaps,
+          fitGaps: err.fit.gaps.map((g) => `${g.type}: ${g.detail}`),
         };
         upsertJob(db, updatedJob);
         console.log(`  ${chalk.yellow("SKIP")} — ${label}`);

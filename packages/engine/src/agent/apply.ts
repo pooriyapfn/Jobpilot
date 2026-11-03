@@ -26,19 +26,24 @@ const learn = (fields: FormField[], answers: Answers, sent: Record<string, strin
   }
 };
 
-export const applyJob = async (id: string): Promise<void> => {
+export const applyJob = async (id: string, step: (text: string) => void = () => {}): Promise<void> => {
   const app = getApp(id);
   if (!app) throw new Error(`Unknown job ${id}`);
   setStatus(id, "filling");
 
+  step("Connecting to Chrome");
   const page = await (await userChrome()).newPage();
   await page.bringToFront();
+  step("Opening the application form");
   const { frame, fields, access } = await openApplyPage(page, app.applyUrl);
   if (access === "closed") return setStatus(id, "closed", "Posting is gone");
+  step("Checking answers");
   const answers = await completeAnswers(app, fields);
+  step(app.resumePath ? "Filling fields and uploading your resume" : "Filling fields");
   const pending = await fillForm(frame, fields, answers, app.resumePath).catch(() => fields.map((f) => f.id));
   saveApp({ ...app, fields, answers, status: "filling", note: pending.length ? `${pending.length} field(s) need you` : undefined });
 
+  step("Waiting for you to review and submit in Chrome");
   const { submitted, sent } = await waitForSubmit(page, frame, () => readValues(frame, fields));
   if (submitted && sent) learn(fields, answers, sent);
   setStatus(id, submitted ? "submitted" : "skipped", "");

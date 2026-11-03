@@ -5,7 +5,11 @@ import { extractForm } from "./form.ts";
 const MIN_FIELDS = 3;
 const CLOSED_TEXT = /job (not found|no longer|has been closed|is closed)|position (has been filled|is no longer)|no longer accepting/i;
 const CHALLENGE_TEXT = /just a moment|security verification|verify you are human|checking your browser/i;
-const LOGIN_WALL = { host: /(^|\.)linkedin\.com$/, text: /join now|sign in to apply/i };
+// Wellfound applies inside its own site: needs your logged-in session (Apply opens it in your Chrome)
+const LOGIN_WALL = { host: /(^|\.)(linkedin|wellfound)\.com$/, text: /join now|sign in to apply|log in|sign up/i };
+
+// Aggregators whose "Apply" only resolves in your real browser session (redirect / login / bot check)
+const AGGREGATOR_HOST = /(^|\.)(remoteok\.com|himalayas\.app|wellfound\.com)$/;
 
 // ok: page usable · closed: posting gone · blocked: bot wall (Cloudflare…) · login: needs your session
 export type Access = "ok" | "closed" | "blocked" | "login";
@@ -66,7 +70,12 @@ export const openApplyPage = async (page: Page, url: string) => {
     if (next) status = await goto(page, atsApplyUrl(next));
     const form = await extractForm(page);
     const access = form.fields.length >= MIN_FIELDS ? "ok" : await accessOf(page, status);
-    if (form.fields.length >= MIN_FIELDS || access !== "ok" || hop === 2) return { applyUrl: page.url(), ...form, access };
+    if (form.fields.length >= MIN_FIELDS || access !== "ok") return { applyUrl: page.url(), ...form, access };
+    // Still on the aggregator without a form: its Apply needs your Chrome (prepare hands it over)
+    if (hop === 2) {
+      const stuck = AGGREGATOR_HOST.test(new URL(page.url()).hostname);
+      return { applyUrl: page.url(), ...form, access: stuck ? ("blocked" as const) : access };
+    }
     next = await followApply(page);
   }
 };

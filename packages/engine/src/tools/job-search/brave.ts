@@ -23,9 +23,12 @@ export interface BraveResult {
 export async function braveSearch({
   query,
   offset = 0,
+  freshness = "pw",
 }: {
   query: string;
   offset?: number;
+  /** pd | pw | pm | py | YYYY-MM-DDtoYYYY-MM-DD */
+  freshness?: string;
 }): Promise<BraveResult[]> {
   const apiKey = process.env.BRAVE_API_KEY;
   if (!apiKey) {
@@ -36,7 +39,7 @@ export async function braveSearch({
     q: query,
     count: "20",
     offset: String(offset),
-    freshness: "pw",
+    freshness,
     search_lang: "en",
     extra_snippets: "true",
   });

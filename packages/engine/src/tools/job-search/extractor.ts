@@ -1,3 +1,5 @@
+import type { Salary } from "./types.ts";
+
 /**
  * Check if a JSON-LD node has @type "JobPosting".
  * Handles @type as string or array of strings.
@@ -134,4 +136,59 @@ export function extractVisibleRegions(html: string): VisibleRegions {
     .slice(0, 20_000);
 
   return { pageTitle, headerText, displayedLocation, bodyText };
+}
+
+// ── JobPosting fields ────────────────────────────────────────────────────────
+
+const asArray = (v: unknown): unknown[] => (Array.isArray(v) ? v : v == null ? [] : [v]);
+const text = (v: unknown): string | undefined => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+
+/**
+ * applicantLocationRequirements: who may apply to a remote job. One or many of
+ * "Turkey" | {"@type":"Country","name":"Europe / MENA"} | {"address":{"addressCountry":"DE"}}.
+ */
+export function extractApplicantLocations(posting: Record<string, unknown>): string[] {
+  return asArray(posting["applicantLocationRequirements"])
+    .map((l) => {
+      if (typeof l === "string") return text(l);
+      if (!l || typeof l !== "object") return undefined;
+      const o = l as Record<string, unknown>;
+      const addr = o["address"] as Record<string, unknown> | undefined;
+      const country = addr?.["addressCountry"];
+      return text(o["name"]) ?? text(country) ?? text((country as Record<string, unknown> | undefined)?.["name"]);
+    })
+    .filter((v): v is string => !!v);
+}
+
+// Rough USD rates — only for the salary floor, never shown as an exact figure.
+const USD_RATE: Record<string, number> = { USD: 1, EUR: 1.08, GBP: 1.27, CHF: 1.13, CAD: 0.73, AUD: 0.65 };
+const PER_MONTH: Record<string, number> = { HOUR: 160, DAY: 21, WEEK: 4.33, MONTH: 1, YEAR: 1 / 12 };
+
+/** baseSalary → amounts + a monthly USD figure for the salary floor. */
+export function extractSalary(posting: Record<string, unknown>): Salary | undefined {
+  const base = posting["baseSalary"];
+  if (!base || typeof base !== "object") return undefined;
+  const b = base as Record<string, unknown>;
+  const value = (typeof b["value"] === "object" && b["value"] ? b["value"] : b) as Record<string, unknown>;
+  const num = (v: unknown) => (typeof v === "number" ? v : typeof v === "string" ? Number(v.replace(/[,\s]/g, "")) : NaN);
+  const single = num(value["value"]);
+  const min = Number.isFinite(num(value["minValue"])) ? num(value["minValue"]) : Number.isFinite(single) ? single : undefined;
+  const max = Number.isFinite(num(value["maxValue"])) ? num(value["maxValue"]) : undefined;
+  if (min === undefined && max === undefined) return undefined;
+  const currency = (text(b["currency"]) ?? text(value["currency"]) ?? "USD").toUpperCase();
+  const unit = (text(value["unitText"]) ?? text(b["unitText"]) ?? "YEAR").toUpperCase();
+  const rate = USD_RATE[currency];
+  const perMonth = PER_MONTH[unit];
+  const top = max ?? min!;
+  const monthlyUsd = rate && perMonth && top > 0 ? Math.round(top * perMonth * rate) : undefined;
+  return { min, max, currency, unit, monthlyUsd };
+}
+
+// No leading \b: names like "ArgusRecruit" / "TechStaffing"
+const AGENCY_NAME_RE = /(recruit|staffing|headhunt|executive search|talent (?:partners|solutions|search))/i;
+const AGENCY_TEXT_RE = /\bon behalf of (?:our|a|an)\b[^.]{0,60}?\b(?:client|company)\b|\bour client(?: is|,)|\bconfidential client\b/i;
+
+/** Posted by a recruiting agency: the agency's name, or "on behalf of our client" wording. */
+export function isRecruitingAgency(company: string | undefined, description: string): boolean {
+  return (!!company && AGENCY_NAME_RE.test(company)) || AGENCY_TEXT_RE.test(description);
 }

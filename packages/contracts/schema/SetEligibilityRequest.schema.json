@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "SetEligibilityRequest.schema.json",
+  "type": "object",
+  "properties": {
+    "eligibility": {
+      "$ref": "Eligibility.schema.json"
+    }
+  },
+  "required": [
+    "eligibility"
+  ],
+  "additionalProperties": false
+}

@@ -2,13 +2,32 @@ import { z } from "zod";
 import type { JDAnalysis } from "./JDAnalysis.ts";
 import { MODELS, type LLMJson } from "./LLM.ts";
 
+export const GAP_TYPES = [
+  "Language", // programming language, e.g. Go, Rust
+  "Framework", // framework, library or tool
+  "Skill", // other technical or professional skill
+  "Domain", // industry or problem area, e.g. fintech, data engineering
+  "Seniority", // years of experience or level
+  "Role", // a different discipline altogether
+  "Location", // country, timezone or on-site requirement
+  "Work authorization", // visa, citizenship, clearance
+  "Education", // degree or certification
+  "Other",
+] as const;
+
 export const FitClassificationSchema = z.object({
   classification: z.enum(["STRONG_FIT", "POSSIBLE_FIT", "SKIP"]),
   reasons: z.array(z.string()),
-  gaps: z.array(z.string()),
+  gaps: z.array(z.object({ type: z.enum(GAP_TYPES), detail: z.string() })),
 });
 
 export type FitClassification = z.infer<typeof FitClassificationSchema>;
+
+/** One short line per finding: gaps first ("✗ Language: no Go experience"), then strengths ("✓ ..."). */
+export const fitLines = (fit: Pick<FitClassification, "gaps" | "reasons">): string[] => [
+  ...fit.gaps.map((g) => `✗ ${g.type}: ${g.detail}`),
+  ...fit.reasons.map((r) => `✓ ${r}`),
+];
 
 export const assessFit = async (
   jdAnalysis: JDAnalysis,
@@ -61,11 +80,22 @@ export const assessFit = async (
     CANDIDATE RESUME:
     ${mainResume}
 
+    OUTPUT STYLE — short and scannable, the reader skims this in a list:
+    - "gaps": one entry per unmet requirement, at most 4, most important first.
+      "type" must be exactly one of: ${GAP_TYPES.join(", ")}.
+      "detail" is one short phrase, 10 words or fewer, naming the specific thing
+      (e.g. "Go required, none on resume", "8+ years required, resume shows 7",
+      "Must be based in the US", "Fintech/payments domain not shown").
+    - "reasons": at most 3 strengths that support the classification, each 10 words or
+      fewer. No sentences strung together with semicolons; no repeating the gaps.
+    - Use "Location" for any country, timezone or on-site requirement, and "Language"
+      for programming languages (spoken languages also go under "Language").
+
     Return ONLY valid JSON:
     {
       "classification": "STRONG_FIT" | "POSSIBLE_FIT" | "SKIP",
-      "reasons": string[],   // top 3-5 supporting reasons for the classification
-      "gaps": string[]       // unmet requirements (empty if STRONG_FIT)
+      "gaps": [{ "type": string, "detail": string }],   // unmet requirements (empty if STRONG_FIT)
+      "reasons": string[]                                // supporting strengths
     }
   `;
 

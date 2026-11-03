@@ -1,0 +1,101 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "JobListingDetail.schema.json",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "url": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "company": {
+      "type": "string"
+    },
+    "eligibility": {
+      "$ref": "Eligibility.schema.json"
+    },
+    "eligibilityReason": {
+      "type": "string"
+    },
+    "eligibilitySource": {
+      "allOf": [
+        {
+          "$ref": "EligibilitySource.schema.json"
+        }
+      ]
+    },
+    "evaluatedAt": {
+      "type": "string"
+    },
+    "datePosted": {
+      "type": "string"
+    },
+    "addedAt": {
+      "type": "string"
+    },
+    "updatedAt": {
+      "type": "string"
+    },
+    "snippet": {
+      "type": "string"
+    },
+    "location": {
+      "type": "string"
+    },
+    "userNote": {
+      "type": "string"
+    },
+    "appliedAt": {
+      "type": "string"
+    },
+    "applicationStatus": {
+      "allOf": [
+        {
+          "$ref": "Status.schema.json"
+        }
+      ]
+    },
+    "resumeReady": {
+      "type": "boolean"
+    },
+    "matchFit": {
+      "type": "string"
+    },
+    "activity": {
+      "allOf": [
+        {
+          "$ref": "JobActivity.schema.json"
+        }
+      ]
+    },
+    "activityStep": {
+      "type": "string"
+    },
+    "activityError": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "matchNotes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "url",
+    "title",
+    "company",
+    "eligibility",
+    "addedAt",
+    "updatedAt",
+    "snippet",
+    "resumeReady",
+    "description"
+  ],
+  "additionalProperties": false
+}

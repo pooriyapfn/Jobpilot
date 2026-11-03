@@ -1,10 +1,12 @@
 // Batch: for every ready job → find form → tailor resume → answer fields → save for review.
 // Usage: npm run prepare-jobs [-- --limit 10]
+import { fileURLToPath } from "node:url";
 import type { Browser } from "playwright-core";
 import { hasApp, saveApp } from "../db.ts";
 import { hasForm, openApplyPage } from "../browser/apply-page.ts";
 import { launchHeadless } from "../browser/session.ts";
-import { loadReadyJobs, type ReadyJob } from "../tools/job-search/jobs.ts";
+import { jobsToPrepare } from "../listings.ts";
+import type { ReadyJob } from "../tools/job-search/jobs.ts";
 import { tailorResume } from "../tools/tailor/tailor.ts";
 import type { Application } from "../types.ts";
 import { answerFields } from "./answer.ts";
@@ -32,14 +34,16 @@ const BLOCKED_NOTE = {
   login: "Needs login — Apply opens it in your Chrome",
 };
 
-const prepareJob = async (browser: Browser, job: ReadyJob): Promise<Application> => {
+export const prepareJob = async (browser: Browser, job: ReadyJob, step: (text: string) => void = () => {}): Promise<Application> => {
+  step("Opening the posting");
   const form = await scanPage(browser, job.url);
   const jd = job.description.length > 500 ? job.description : form.text;
   const base = emptyApp(job, jd);
   if (form.access === "closed") return { ...base, status: "closed", note: form.applyUrl };
 
+  step("Tailoring your resume");
   const tailored = await tailorResume(job.id, job.title, job.company, jd);
-  if (tailored.skip) return { ...base, status: "skip-fit", note: tailored.reasons.join("; ") };
+  if (tailored.skip) return { ...base, status: "skip-fit", note: tailored.reasons.join("\n") };
 
   const common = { ...base, applyUrl: form.applyUrl, fit: tailored.fit, atsScore: tailored.atsScore, resumePath: tailored.docxPath };
   if (form.access === "blocked" || form.access === "login") {
@@ -47,6 +51,7 @@ const prepareJob = async (browser: Browser, job: ReadyJob): Promise<Application>
   }
   if (!hasForm(form.fields.length)) return { ...common, status: "manual", note: "No form found — apply by hand" };
 
+  step("Drafting answers");
   const answers = await answerFields(form.fields, { title: job.title, company: job.company, jd, resume: tailored.resume, sourceUrl: job.url });
   return { ...common, status: "prepared", fields: form.fields, answers };
 };
@@ -55,7 +60,7 @@ const main = async () => {
   const limitArg = process.argv.indexOf("--limit");
   const limit = limitArg > 0 ? Number(process.argv[limitArg + 1]) : Infinity;
 
-  const jobs = loadReadyJobs().filter((j) => !hasApp(j.id)).slice(0, limit);
+  const jobs = jobsToPrepare().filter((j) => !hasApp(j.id)).slice(0, limit);
   console.log(`Preparing ${jobs.length} new job(s)…`);
 
   const browser = await launchHeadless();
@@ -77,4 +82,4 @@ const main = async () => {
   }
 };
 
-main();
+if (process.argv[1] === fileURLToPath(import.meta.url)) main();

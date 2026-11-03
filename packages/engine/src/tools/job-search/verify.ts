@@ -1,5 +1,5 @@
 import chalk from "chalk";
-import { readFile, writeFile } from "fs/promises";
+import { appendFile, readFile, writeFile } from "fs/promises";
 import { fileURLToPath } from "node:url";
 import { fetchJobFromATS } from "./adapters/index.ts";
 import {
@@ -9,11 +9,19 @@ import {
   classifyWorkMode,
   scopeToLocationEligibility,
 } from "./classifier.ts";
-import { extractJobPosting, extractVisibleRegions } from "./extractor.ts";
-import { isExcluded, isExcludedATSCompany } from "./filters.ts";
+import {
+  extractApplicantLocations,
+  extractJobPosting,
+  extractSalary,
+  extractVisibleRegions,
+  isRecruitingAgency,
+} from "./extractor.ts";
+import { isBlocked } from "./filters.ts";
+import { candidate } from "./candidate.ts";
 import { isCompanyExcluded, loadExcludedCompanies } from "./company-exclusions.ts";
 import { ATS_DOMAINS, MIN_MONTHLY_SALARY_USD } from "./config.ts";
 import type {
+  AggregatorListing,
   AtsJobData,
   AvailabilityStatus,
   EvidenceSource,
@@ -24,6 +32,7 @@ import type {
   VerifiedJob,
 } from "./types.ts";
 import { OUTPUT_DIR } from "./paths.ts";
+import { watchSites } from "./sources/watched-sites.ts";
 
 const BATCH_SIZE = 5;
 const FETCH_TIMEOUT_MS = 10_000;
@@ -32,7 +41,7 @@ const FETCH_TIMEOUT_MS = 10_000;
 
 export type VerificationOutcome = "verified-fresh" | "needs-date" | "uncertain" | "rejected";
 
-const ELIGIBLE_SCOPES = new Set<GeographicScope>(["home", "worldwide", "emea"]);
+const ELIGIBLE_SCOPES = new Set<GeographicScope>(["home", "worldwide", "region"]);
 
 /**
  * Pure function: classify a VerifiedJob into its output bucket.
@@ -51,7 +60,7 @@ export function classifyVerificationOutcome(job: VerifiedJob): VerificationOutco
   if (job.geographicScope === "specific-country") return "rejected";
   // Unknown geography → send to LLM for evaluation
   if (!job.geographicScope || job.geographicScope === "unknown") return "uncertain";
-  // Eligible scope: home / worldwide / emea
+  // Eligible scope: home / worldwide / open region
   if (!ELIGIBLE_SCOPES.has(job.geographicScope)) return "rejected";
   if (job.freshness === "verified-24h" || job.freshness === "verified-week") return "verified-fresh";
   if (job.freshness === "date-unknown") return "needs-date";
@@ -102,7 +111,7 @@ function extractJobLocations(posting: Record<string, unknown>): string[] {
 
 async function fetchWithTimeout(
   url: string
-): Promise<{ html: string; status: "ok" | "failed" | "timeout" }> {
+): Promise<{ html: string; status: "ok" | "failed" | "timeout"; httpStatus?: number }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
@@ -115,7 +124,7 @@ async function fetchWithTimeout(
       },
     });
     clearTimeout(timer);
-    if (!response.ok) return { html: "", status: "failed" };
+    if (!response.ok) return { html: "", status: "failed", httpStatus: response.status };
     const html = await response.text();
     return { html, status: "ok" };
   } catch (err) {
@@ -154,12 +163,12 @@ const ATS_LINK = new RegExp(
 );
 export const findAtsJobUrl = (html: string): string | undefined => html.match(ATS_LINK)?.[0];
 
-async function verifyJob(job: SearchJob): Promise<VerifiedJob> {
+export async function verifyJob(job: SearchJob): Promise<VerifiedJob> {
   const verifiedAt = new Date().toISOString();
   const evidence: Array<{ source: EvidenceSource; field: string; value: string }> = [];
 
   // Re-apply domain filter in case jobs.json was generated before a domain was blocked
-  if (isExcluded(job.url) || isExcludedATSCompany(job.url)) {
+  if (isBlocked(job)) {
     return {
       ...job,
       pageType: "aggregator-job",
@@ -214,7 +223,15 @@ async function verifyJob(job: SearchJob): Promise<VerifiedJob> {
   }
 
   // Fetch the HTML page
-  const { html, status: fetchStatus } = await fetchWithTimeout(job.url);
+  const { html, status: fetchStatus, httpStatus } = await fetchWithTimeout(job.url);
+
+  // 404 / 410 Gone: the posting was taken down (Wellfound answers 410)
+  if (httpStatus === 404 || httpStatus === 410) {
+    return closedJob(job, verifiedAt, [...evidence, { source: "visible-html", field: "httpStatus", value: String(httpStatus) }]);
+  }
+
+  // Aggregator page behind a bot wall (Himalayas, Wellfound): the aggregator's API data stands in for it
+  if (job.listing && (fetchStatus !== "ok" || !html)) return fromListing(job, job.listing, verifiedAt, evidence);
 
   if (fetchStatus !== "ok" || !html) {
     return {
@@ -257,12 +274,14 @@ async function verifyJob(job: SearchJob): Promise<VerifiedJob> {
   // Extract JSON-LD
   const posting = extractJobPosting(html);
   const jsonLdFound = posting !== null;
+  if (job.listing && !posting) return fromListing(job, job.listing, verifiedAt, evidence);
   const pageType = classifyPageType(job.url, jsonLdFound);
 
   // Extract structured data from JSON-LD
   let datePosted: string | undefined;
   let company: string | undefined;
   let jobLocation: string[] = [];
+  let applicantLocations: string[] = [];
   let validThrough: string | undefined;
   let employmentType: string | undefined;
   let dateSource: VerifiedJob["dateSource"] = "none";
@@ -273,6 +292,7 @@ async function verifyJob(job: SearchJob): Promise<VerifiedJob> {
     datePosted = getString(posting, "datePosted");
     company = extractCompany(posting);
     jobLocation = extractJobLocations(posting);
+    applicantLocations = extractApplicantLocations(posting);
     validThrough = getString(posting, "validThrough");
     employmentType = getString(posting, "employmentType");
     descriptionText = getString(posting, "description") ?? "";
@@ -287,6 +307,9 @@ async function verifyJob(job: SearchJob): Promise<VerifiedJob> {
     }
     if (jobLocation.length > 0) {
       evidence.push({ source: "json-ld", field: "jobLocation", value: jobLocation.join("; ") });
+    }
+    if (applicantLocations.length > 0) {
+      evidence.push({ source: "json-ld", field: "applicantLocationRequirements", value: applicantLocations.join("; ") });
     }
   }
 
@@ -316,16 +339,15 @@ async function verifyJob(job: SearchJob): Promise<VerifiedJob> {
     }
   }
 
-  // Salary floor check
-  let salaryTooLow = false;
-  if (posting) {
-    const baseSalary = posting["baseSalary"] as Record<string, unknown> | undefined;
-    const salaryValue = (baseSalary?.["value"] ?? baseSalary) as Record<string, unknown> | undefined;
-    const unitText = (salaryValue?.["unitText"] as string | undefined)?.toLowerCase();
-    const maxValue = salaryValue?.["maxValue"] as number | undefined;
-    if (unitText === "month" && typeof maxValue === "number" && maxValue < MIN_MONTHLY_SALARY_USD) {
-      salaryTooLow = true;
-    }
+  // Salary floor check (only when a salary is stated)
+  const salary = posting ? extractSalary(posting) : undefined;
+  let salaryTooLow = salary?.monthlyUsd !== undefined && salary.monthlyUsd < MIN_MONTHLY_SALARY_USD;
+  if (salary) {
+    evidence.push({
+      source: "json-ld",
+      field: "baseSalary",
+      value: `${salary.min ?? ""}–${salary.max ?? ""} ${salary.currency}/${salary.unit}${salary.monthlyUsd ? ` ≈ $${salary.monthlyUsd}/mo` : ""}`,
+    });
   }
   if (!salaryTooLow) {
     const MONTHLY_SALARY_RE = /\$(\d[\d,]*)\s*(?:to|-)\s*\$(\d[\d,]*)\s*\/\s*(?:month|mo)\b/i;
@@ -354,9 +376,10 @@ async function verifyJob(job: SearchJob): Promise<VerifiedJob> {
         ? false
         : undefined;
 
-  // Classify geographic scope
+  // Classify geographic scope. For remote jobs, applicantLocationRequirements says who may apply;
+  // jobLocation is then usually just the office, so it must not restrict.
   const geoResult = classifyGeographicScope(
-    jobLocation,
+    applicantLocations.length && workMode === "remote" ? applicantLocations : [...applicantLocations, ...jobLocation],
     visibleRegions.displayedLocation,
     [descriptionText, visibleRegions.bodyText, ...job.extraSnippets].join(" "),
     job.title
@@ -401,12 +424,18 @@ async function verifyJob(job: SearchJob): Promise<VerifiedJob> {
 
   return {
     ...job,
+    // Search results always carry a title; a link added by hand doesn't, so read it from the page.
+    title: job.title || (posting && getString(posting, "title")) || atsData?.title || visibleRegions.headerText.split(" | ")[0] || visibleRegions.pageTitle,
     description: descriptionText || job.description,
     company,
     datePosted,
     validThrough,
     employmentType,
     jobLocation,
+    applicantLocations: applicantLocations.length ? applicantLocations : undefined,
+    openRegion: geoResult.region,
+    salary,
+    agency: isRecruitingAgency(company, descriptionText) || undefined,
     remote,
     ageHours,
     freshness,
@@ -424,6 +453,64 @@ async function verifyJob(job: SearchJob): Promise<VerifiedJob> {
     visibleText: visibleRegions.bodyText,
     displayedLocation: visibleRegions.displayedLocation || undefined,
     geographicScope,
+    verificationEvidence: evidence,
+  };
+}
+
+/** Per query / source: verified jobs and surviving candidates. */
+export function queryYield(verified: VerifiedJob[]): Record<string, { verified: number; candidates: number }> {
+  const out: Record<string, { verified: number; candidates: number }> = {};
+  for (const v of verified) {
+    const candidate = classifyVerificationOutcome(v) !== "rejected";
+    for (const q of v.foundByQueries ?? []) {
+      const y = (out[q] ??= { verified: 0, candidates: 0 });
+      y.verified++;
+      if (candidate) y.candidates++;
+    }
+  }
+  return out;
+}
+
+/** VerifiedJob from an aggregator API's data, for pages we can't read ourselves. */
+export function fromListing(job: SearchJob, l: AggregatorListing, verifiedAt: string, evidence: Evidence): VerifiedJob {
+  evidence.push({ source: "aggregator-api", field: "via", value: l.via });
+  const locations = l.applicantLocations;
+  const own = candidate().names.map((n) => n.toLowerCase());
+  const geo =
+    locations === undefined
+      ? classifyGeographicScope([], "", `${l.description ?? ""} ${job.description}`, job.title)
+      : locations.length === 0
+        ? { scope: "worldwide" as const, region: undefined }
+        : locations.some((c) => own.includes(c.toLowerCase()))
+          ? { scope: "home" as const, region: undefined }
+          : classifyGeographicScope(locations, "", "", job.title);
+  if (locations) evidence.push({ source: "aggregator-api", field: "applicantLocations", value: locations.join("; ").slice(0, 200) || "worldwide" });
+  const workMode = l.remote ? "remote" : "unknown";
+  const freshness = classifyFreshness(l.datePosted);
+  const rejectionReason =
+    freshness === "old" ? "old" : geo.scope === "specific-country" ? "geo-restricted" : undefined;
+  return {
+    ...job,
+    description: l.description || job.description,
+    company: l.company,
+    datePosted: l.datePosted,
+    applicantLocations: locations?.length ? locations.slice(0, 50) : undefined,
+    openRegion: geo.region,
+    agency: isRecruitingAgency(l.company, l.description ?? "") || undefined,
+    remote: l.remote,
+    ageHours: l.datePosted ? (Date.now() - Date.parse(l.datePosted)) / 3_600_000 : undefined,
+    freshness,
+    locationEligibility: scopeToLocationEligibility(geo.scope),
+    pageType: "direct-job",
+    geoRejected: geo.scope === "specific-country",
+    rejectionReason,
+    verifiedAt,
+    fetchStatus: "ok",
+    jsonLdFound: false,
+    dateSource: "none",
+    workMode,
+    availabilityStatus: "confirmed-live", // listed by the aggregator's API right now
+    geographicScope: geo.scope,
     verificationEvidence: evidence,
   };
 }
@@ -496,6 +583,11 @@ async function main() {
   const uncertain = verified.filter((v) => classifyVerificationOutcome(v) === "uncertain");
   const rejected = verified.filter((v) => classifyVerificationOutcome(v) === "rejected");
 
+  // Non-ATS sites with a real remote job get watched: later searches read their job index directly
+  const newSites = await watchSites(
+    [...verifiedFresh, ...needsDate, ...uncertain].filter((v) => v.pageType === "direct-job").map((v) => v.url)
+  );
+
   // Compute stats
   const vstats: VerificationStats = {
     fetchOk: verified.filter((v) => v.fetchStatus === "ok").length,
@@ -535,6 +627,7 @@ async function main() {
     // no existing stats
   }
   existingStats.verification = vstats;
+  existingStats.yield = queryYield(verified);
 
   await Promise.all([
     writeFile(
@@ -567,6 +660,8 @@ async function main() {
       JSON.stringify(existingStats, null, 2),
       "utf8"
     ),
+    // One line per run: which queries/sources keep producing candidates (prune the ones that don't)
+    appendFile(`${OUTPUT_DIR}yield-history.jsonl`, JSON.stringify({ runAt, yield: existingStats.yield }) + "\n", "utf8"),
   ]);
 
   const fetchRate =
@@ -614,6 +709,13 @@ async function main() {
   console.log(chalk.dim(`  output/uncertain.json      — ${uncertain.length} entries`));
   console.log(chalk.dim(`  output/rejected.json       — ${rejected.length} entries`));
   console.log(chalk.dim(`  output/stats.json          — updated\n`));
+  if (newSites) console.log(chalk.dim(`  Watching ${newSites} new career site(s) — watched-sites.json\n`));
+  const top = Object.entries(existingStats.yield).filter(([, y]) => y.candidates > 0).sort((a, b) => b[1].candidates - a[1].candidates);
+  if (top.length) {
+    console.log(chalk.bold.cyan("  Candidates by query / source"));
+    for (const [q, y] of top.slice(0, 15)) console.log(`  ${chalk.green(String(y.candidates).padStart(3))}/${y.verified}  ${chalk.dim(q)}`);
+    console.log();
+  }
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

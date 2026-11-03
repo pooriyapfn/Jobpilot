@@ -1,3 +1,5 @@
+import { candidate } from "./candidate.ts";
+
 export const SEARCH_QUERIES: string[] = [
   // AI family — general
   `"AI Engineer" remote`,
@@ -30,7 +32,31 @@ export const SEARCH_QUERIES: string[] = [
   `site:job-boards.greenhouse.io "AI Engineer" remote`,
   `site:jobs.smartrecruiters.com "AI Engineer" remote`,
   `site:apply.workable.com "AI Engineer" remote`,
+  // Startup titles and signals
+  `"Member of Technical Staff" remote`,
+  `"Forward Deployed Engineer" remote`,
+  `"Design Engineer" remote startup`,
+  `"Founding Engineer" seed OR "Series A" remote`,
+  `"early-stage" startup "software engineer" remote`,
+  `"YC" startup "engineer" remote hiring`,
+  `site:jobs.ashbyhq.com "Member of Technical Staff"`,
+  `site:jobs.ashbyhq.com "Founding Engineer"`,
+  // Recruiting agencies posting for clients on their own sites (caught via JSON-LD)
+  `"on behalf of" "our client" remote "software engineer"`,
+  `"our client" "AI" remote engineer "fully remote"`,
 ];
+
+/** SEARCH_QUERIES plus location queries for the candidate's country and open regions (from .env.local). */
+export function searchQueries(): string[] {
+  const { country, regions } = candidate();
+  const places = [...(country ? [country] : []), ...regions];
+  const located = places.flatMap((p) => [
+    `"software engineer" remote "${p}"`,
+    `"AI engineer" remote "${p}"`,
+    `site:jobs.ashbyhq.com remote "${p}"`,
+  ]);
+  return [...SEARCH_QUERIES, ...located];
+}
 
 export const EXCLUDED_DOMAINS: string[] = [
   "linkedin.com",
@@ -64,7 +90,8 @@ export const EXCLUDED_DOMAINS: string[] = [
   "remote.com",
 ];
 
-export const MIN_MONTHLY_SALARY_USD = 3000;
+// Jobs stating a lower salary are rejected. Override with MIN_MONTHLY_SALARY_USD in .env.local (0 = off).
+export const MIN_MONTHLY_SALARY_USD = Number(process.env.MIN_MONTHLY_SALARY_USD ?? 3000);
 
 // ATS company slugs to block (e.g. jobs.lever.co/jobgether/*)
 export const EXCLUDED_ATS_COMPANIES: string[] = [
@@ -83,9 +110,10 @@ export const ATS_DOMAINS: string[] = [
 // ── Extra sources (src/sources/) ─────────────────────────────────────────────
 
 // Board-API job titles: must match INCLUDE and not EXCLUDE
-export const ROLE_TITLE_INCLUDE = /engineer|developer|software|founding|\bai\b|\bml\b/i;
+export const ROLE_TITLE_INCLUDE = /engineer|developer|software|founding|technical staff|forward deployed|\bai\b|\bml\b/i;
+// "Solutions Engineer" / forward-deployed roles at AI startups stay in; pure presales titles don't.
 export const ROLE_TITLE_EXCLUDE =
-  /\b(intern|internship|manager|director|vp|head of|sales|solutions|support|recruit\w*|account|mechanical|electrical|hardware|firmware|field|customer success|data scientist|research scientist|staff accountant)\b/i;
+  /\b(intern|internship|manager|director|vp|head of|sales|solutions (?:consultant|architect)|support|recruit\w*|account|mechanical|electrical|hardware|firmware|field|customer success|data scientist|research scientist|staff accountant)\b/i;
 
 // Drop board jobs whose posting date is known and older than this (verify re-checks freshness)
 export const SOURCE_MAX_AGE_DAYS = 7;
@@ -100,6 +128,8 @@ export const FUNDING_NEWS_QUERIES: string[] = [
   `startup raises Series B`,
   `raises million led by Andreessen Horowitz OR Sequoia OR Accel OR "Index Ventures" OR Lightspeed`,
   `remote-first startup raises funding`,
+  `startup raises pre-seed`,
+  `European startup raises seed OR "Series A"`,
 ];
 
 // Hand-picked VC-backed startups to always check. Names are resolved to Greenhouse/Lever/Ashby
@@ -112,9 +142,23 @@ export const VC_WATCHLIST: string[] = [
   "Cursor", "Anysphere", "Cognition", "Lovable", "Statsig", "Mercor", "Hex", "Dagster",
 ];
 
+// Google Jobs via SerpApi (needs SERPAPI_KEY; skipped without it). One API call per query per run.
+// Location words come from the candidate's country/regions (see googleJobsQueries in sources/google-jobs.ts).
+export const GOOGLE_JOBS_QUERIES: string[] = [
+  "software engineer remote",
+  "AI engineer remote",
+  "founding engineer remote",
+];
+
+// Career pages on non-ATS sites (agencies, small companies) whose jobs carry JSON-LD JobPosting.
+// Verify adds more automatically (watched-sites.json); these are always checked.
+export const WATCHED_SITE_SEEDS: string[] = ["https://argusrecruit.com/jobs/"];
+
 // RSS feeds of funding announcements — headline → company name (same path as FUNDING_NEWS_QUERIES)
 export const FUNDING_FEEDS: string[] = [
   "https://techcrunch.com/category/venture/feed/",
   "https://sifted.eu/feed",
   "https://news.crunchbase.com/feed/",
+  "https://www.eu-startups.com/feed/",
+  "https://tech.eu/feed/",
 ];

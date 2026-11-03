@@ -28,6 +28,11 @@ export function isExcludedATSCompany(url: string): boolean {
   }
 }
 
+/** Excluded domain / ATS company — unless the job came from an aggregator source on purpose (it carries a listing). */
+export function isBlocked(job: Pick<SearchJob, "url" | "listing">): boolean {
+  return !job.listing && (isExcluded(job.url) || isExcludedATSCompany(job.url));
+}
+
 const TRACKING_PARAMS = ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "gh_src", "gh_jid", "ref"];
 
 export function normalizeUrl(url: string): string {
