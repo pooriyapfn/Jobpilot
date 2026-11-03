@@ -141,3 +141,7 @@ Issues and pull requests are welcome. Please run `npm test` and `npm run typeche
 ## Disclaimer
 
 JobPilot automates repetitive steps; you remain responsible for what you submit. Respect each site's terms of use and rate limits. Job-board data belongs to its owners (RemoteOK and Himalayas listings keep a link back to their source).
+
+## License
+
+[MIT](LICENSE)
