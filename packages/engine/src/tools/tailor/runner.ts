@@ -68,7 +68,7 @@ export const runResumeTailor = async (
 
   // SKIP gate — abort before spending tokens on tailoring if the role is a mismatch.
   const fit = await timed("Assessing fit", () =>
-    assessFit(jdAnalysis, input.baseResume, input.rules, callLLMJson),
+    assessFit(jdAnalysis, input.baseResume, input.rules),
   );
   logger.done(`Fit: ${fit.classification}`);
   if (fit.classification === "SKIP") {

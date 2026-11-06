@@ -1,12 +1,11 @@
 import { agents } from "../../../agents.config.ts";
+import { askJev, noulYes } from "../jev.ts";
 import { candidate } from "./candidate.ts";
 import type { EligibilityResult, VerifiedJob } from "./types.ts";
 
 const BATCH_SIZE = 5;
 const BATCH_DELAY_MS = 500;
 
-// JEV answers one yes/no (Noul) question per job as a probability — no prose to parse.
-const DECISIONS_URL = "https://openrouter.ai/api/alpha/decisions";
 const YES_THRESHOLD = 0.5;
 
 const buildQuestion = (): string => {
@@ -26,9 +25,6 @@ export async function checkEligibility(
   job: VerifiedJob,
   model: string = agents.eligibility
 ): Promise<EligibilityResult> {
-  const apiKey = process.env["OPENROUTER_API_KEY"];
-  if (!apiKey) throw new Error("OPENROUTER_API_KEY is required");
-
   const state = {
     title: job.title,
     company: job.company ?? "unknown",
@@ -42,29 +38,11 @@ export async function checkEligibility(
     search_snippets: job.extraSnippets ?? [],
   };
 
-  const response = await fetch(DECISIONS_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      state,
-      questions: { eligible: { type: "noul", instructions: buildQuestion() } },
-    }),
+  const answers = await askJev(model, state, {
+    eligible: { type: "noul", instructions: buildQuestion() },
   });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`OpenRouter error ${response.status}: ${text}`);
-  }
-
-  const data = (await response.json()) as {
-    answers?: { eligible?: { type?: string; noul?: number } };
-  };
-  const p = data.answers?.eligible?.noul;
-  if (typeof p !== "number" || !Number.isFinite(p)) {
+  const p = noulYes(answers, "eligible");
+  if (p === undefined) {
     return { status: "uncertain", evidence: "Invalid JEV response", confidence: 0 };
   }
 

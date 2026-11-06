@@ -130,7 +130,7 @@ All agents call OpenRouter. Configure every model in one place: **`packages/engi
 
 | agent | key | used by |
 |---|---|---|
-| tailor | `tailor.extraction` / `tailor.tailoring` / `tailor.review` | JD analysis + experience selection / resume writing / fit + ATS feedback |
+| tailor | `tailor.extraction` / `tailor.tailoring` / `tailor.review` / `tailor.fit` | JD analysis + experience selection / resume writing / ATS feedback / fit gate (JEV) |
 | job-search | `eligibility` | uncertain-location eligibility check |
 | apply | `answer` | application form answers |
 
