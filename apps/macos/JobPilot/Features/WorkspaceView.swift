@@ -4,6 +4,7 @@ import SwiftUI
 struct WorkspaceView: View {
     @Environment(AppStore.self) private var store
     @State private var columns = NavigationSplitViewVisibility.all
+    @State private var confirmBulk = false
 
     var body: some View {
         @Bindable var store = store
@@ -56,6 +57,11 @@ struct WorkspaceView: View {
             ToolbarItem {
                 Menu {
                     Button("Prepare eligible jobs…", systemImage: "doc.badge.gearshape") { store.sheet = .prepare }
+                    if store.section == .jobs {
+                        let count = store.bulkAssessable(store.visibleListings).count
+                        Button("Reassess eligibility of \(count) shown job\(count == 1 ? "" : "s")…", systemImage: "arrow.clockwise") { confirmBulk = true }
+                            .disabled(count == 0 || store.bulk != nil)
+                    }
                     Button("Start Chrome", systemImage: "globe") { Task { await store.startChrome() } }
                         .disabled(store.info?.chromeReachable == true || store.startingChrome)
                 } label: {
@@ -92,6 +98,12 @@ struct WorkspaceView: View {
             }
         }
         .animation(.snappy, value: store.flashMessage)
+        .confirmationDialog("Reassess \(store.bulkAssessable(store.visibleListings).count) jobs?", isPresented: $confirmBulk, titleVisibility: .visible) {
+            Button("Reassess") { store.assessJobs(store.bulkAssessable(store.visibleListings)) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Reads each posting again and updates its eligibility, three at a time. Jobs you marked yourself and jobs you applied to are left alone. Use the filters or search first to pick which jobs.")
+        }
         .sheet(item: $store.sheet) { sheet in
             switch sheet {
             case .findJobs: FindJobsSheet()

@@ -9,6 +9,9 @@
     "url": {
       "type": "string"
     },
+    "applyUrl": {
+      "type": "string"
+    },
     "title": {
       "type": "string"
     },

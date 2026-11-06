@@ -27,7 +27,7 @@ export const EligibilitySource = def("EligibilitySource", z.enum(["search", "che
 export type EligibilitySource = z.infer<typeof EligibilitySource>;
 
 // Work the engine is doing on a listing right now (in memory; gone after a restart).
-export const JobActivity = def("JobActivity", z.enum(["assessing", "preparing", "regenerating", "filling"]));
+export const JobActivity = def("JobActivity", z.enum(["assessing", "preparing", "regenerating", "filling", "scanning"]));
 export type JobActivity = z.infer<typeof JobActivity>;
 
 // GET /api/listings — newest added first. The full description is left out (see JobListingDetail).
@@ -36,6 +36,7 @@ export const JobListing = def(
   z.object({
     id: z.string(),
     url: z.string(),
+    applyUrl: z.string().optional(), // the page with the real form, when the posting links elsewhere; `url` is kept for duplicate detection
     title: z.string(),
     company: z.string(),
 
@@ -80,6 +81,13 @@ export type AddListingRequest = z.infer<typeof AddListingRequest>;
 // POST /api/listings/:id/eligibility — you decide; the application, if any, follows.
 export const SetEligibilityRequest = def("SetEligibilityRequest", z.object({ eligibility: Eligibility }));
 export type SetEligibilityRequest = z.infer<typeof SetEligibilityRequest>;
+
+// POST /api/listings/:id/apply-link — the page with the real application form (e.g. the Greenhouse page an aggregator
+// posting redirects to). Saved next to the original link, which stays: both are checked when jobs are added.
+// Starts a "scanning" activity: reads the form, drafts answers (and the tailored resume, if there is none yet).
+// An empty url clears the saved link. 409 if another job already uses that page.
+export const SetApplyLinkRequest = def("SetApplyLinkRequest", z.object({ url: z.string() }));
+export type SetApplyLinkRequest = z.infer<typeof SetApplyLinkRequest>;
 
 // POST /api/listings/:id/regenerate-resume[?force=1] — force writes the resume even if the fit check says skip.
 

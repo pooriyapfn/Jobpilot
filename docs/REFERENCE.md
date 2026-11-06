@@ -106,7 +106,7 @@ npm start / npm run cli     interactive menu: find → prepare → fill → revi
 # job-search
 npm run search              Brave + job boards → data/job-search/jobs.json
 npm run verify              fetch pages, freshness, location, closed postings
-npm run enrich              LLM eligibility check → eligible-jobs.json
+npm run enrich              JEV (typesafe/jev-1.14) eligibility check → eligible-jobs.json
 npm run report              markdown report → data/job-search/reports/
 npm run jobs-dashboard      job-search DB dashboard (port 3000)
 npm run tailor-batch        tailor resumes for all eligible jobs → data/tailor/output/
@@ -130,7 +130,7 @@ All agents call OpenRouter. Configure every model in one place: **`packages/engi
 
 | agent | key | used by |
 |---|---|---|
-| tailor | `tailor.extraction` / `tailor.tailoring` / `tailor.review` | JD analysis + experience selection / resume writing / fit + ATS feedback |
+| tailor | `tailor.extraction` / `tailor.tailoring` / `tailor.review` / `tailor.fit` | JD analysis + experience selection / resume writing / ATS feedback / fit gate (JEV) |
 | job-search | `eligibility` | uncertain-location eligibility check |
 | apply | `answer` | application form answers |
 

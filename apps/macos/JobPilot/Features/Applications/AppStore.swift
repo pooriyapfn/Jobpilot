@@ -81,6 +81,9 @@ final class AppStore {
     /// Background-action errors you dismissed, so a poll doesn't bring them back.
     private var dismissedActivityErrors: Set<String> = []
     private(set) var startingChrome = false
+    /// A bulk run in progress: how many jobs are finished out of how many.
+    private(set) var bulk: BulkProgress?
+    private var bulkTask: Task<Void, Never>?
 
     private var poller: Task<Void, Never>?
 
@@ -245,11 +248,52 @@ final class AppStore {
     /// Reads the posting again and updates eligibility. Also what "Analyze job" does for a job nobody has checked.
     func assessJob(_ id: String) async { await act { try await $0.assessListing(id) } }
 
+    /// Jobs a bulk reassess may touch: not applied to, and not decided by you.
+    func bulkAssessable(_ jobs: [JobListing]) -> [String] {
+        jobs.filter { $0.eligibilitySource != .you && $0.applicationState != .submitted }.map(\.id)
+    }
+
+    /// Reassesses many jobs, a few at a time so the engine isn't flooded. Jobs already being worked on are skipped.
+    func assessJobs(_ ids: [String], concurrency: Int = 3) {
+        guard bulk == nil else { return }
+        let todo = ids.filter { listing(for: $0)?.isBusy == false }
+        guard !todo.isEmpty else { flash("Nothing to reassess"); return }
+        bulk = BulkProgress(title: "Reassessing eligibility", done: 0, total: todo.count)
+        bulkTask = Task { [weak self] in
+            guard let self else { return }
+            var next = 0, done = 0
+            var running: [String] = []
+            while !Task.isCancelled, next < todo.count || !running.isEmpty {
+                let still = running.filter { self.listing(for: $0)?.isBusy == true }
+                done += running.count - still.count
+                running = still
+                while running.count < concurrency, next < todo.count, !Task.isCancelled {
+                    let id = todo[next]
+                    next += 1
+                    if await self.act({ try await $0.assessListing(id) }) { running.append(id) } else { done += 1 }
+                }
+                self.bulk?.done = done
+                try? await Task.sleep(for: .seconds(1))
+            }
+            let cancelled = Task.isCancelled
+            self.bulk = nil
+            self.bulkTask = nil
+            self.flash(cancelled ? "Stopped after \(done) of \(todo.count). Jobs already started will finish." : "Reassessed \(todo.count) job\(todo.count == 1 ? "" : "s")")
+        }
+    }
+
+    func cancelBulk() { bulkTask?.cancel() }
+
     /// "Generate resume": a whole application (resume, form, answers) for a job without one, otherwise just a new resume.
     func generateResume(_ id: String) async {
         if applicationsByID[id] == nil { await act { try await $0.prepareListing(id) } }
         // Clicking Generate on a job flagged "Not a fit" is you saying you want it anyway.
         else { await act { try await $0.regenerateResume(id, force: self.listing(for: id)?.matchFit == "SKIP") } }
+    }
+
+    /// Saves the page with the real application form and scans it for questions. An empty link clears it.
+    func setApplyLink(_ id: String, _ url: String) async {
+        await act { try await $0.setApplyLink(id, url) }
     }
 
     /// Takes the job off your list. `.listing` keeps its application and files; `.everything` deletes those too.
@@ -421,4 +465,10 @@ final class AppStore {
             return false
         }
     }
+}
+
+struct BulkProgress: Equatable {
+    var title: String
+    var done: Int
+    var total: Int
 }

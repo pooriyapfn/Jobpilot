@@ -16,7 +16,7 @@ const emptyApp = (job: ReadyJob, jd = job.description) => ({
   fields: [], answers: {}, updatedAt: "",
 });
 
-const scanPage = async (browser: Browser, url: string) => {
+export const scanPage = async (browser: Browser, url: string) => {
   const page = await browser.newPage();
   try {
     const form = await openApplyPage(page, url);
@@ -34,9 +34,15 @@ const BLOCKED_NOTE = {
   login: "Needs login — Apply opens it in your Chrome",
 };
 
-export const prepareJob = async (browser: Browser, job: ReadyJob, step: (text: string) => void = () => {}): Promise<Application> => {
+/** `scanUrl`: scan this page for the form instead of the posting's own link (the application link you saved). */
+export const prepareJob = async (
+  browser: Browser,
+  job: ReadyJob,
+  step: (text: string) => void = () => {},
+  scanUrl: string = job.url,
+): Promise<Application> => {
   step("Opening the posting");
-  const form = await scanPage(browser, job.url);
+  const form = await scanPage(browser, scanUrl);
   const jd = job.description.length > 500 ? job.description : form.text;
   const base = emptyApp(job, jd);
   if (form.access === "closed") return { ...base, status: "closed", note: form.applyUrl };

@@ -76,6 +76,7 @@ struct JobDetailView: View {
                 if let job {
                     // Independent facts, side by side: eligibility, application, preparation, match.
                     HStack(spacing: 6) {
+                        EligibilityBadge(eligibility: job.eligibility)
                         ApplicationStateBadge(state: job.applicationState)
                         if job.resumeReady { StatusChip(text: "Resume ready", symbol: "doc.text", tint: .blue, prominent: false) }
                         if let match = job.matchLabel { StatusChip(text: match, symbol: "scope", tint: job.matchFit == "SKIP" ? .secondary : .teal, prominent: false) }
@@ -165,11 +166,14 @@ struct JobDetailView: View {
             }
         case .resume: ResumeTabView(id: id, job: job, app: app)
         case .answers:
-            if let app { AnswersTabView(app: app, focusField: $focusField) } else {
-                ContentUnavailableView {
-                    Label("No answers yet", systemImage: "text.bubble")
-                } description: {
-                    Text("Generating the resume also scans the application form and drafts answers for you to review.")
+            if let app { AnswersTabView(app: app, job: job, focusField: $focusField) } else {
+                VStack(spacing: 16) {
+                    if let job { ApplyLinkSection(job: job).frame(maxWidth: 720).padding(.horizontal, 24).padding(.top, 12) }
+                    ContentUnavailableView {
+                        Label("No answers yet", systemImage: "text.bubble")
+                    } description: {
+                        Text("Generating the resume also scans the application form and drafts answers for you to review.")
+                    }
                 }
             }
         case .posting: PostingTabView(id: id, job: job, app: app)

@@ -233,6 +233,34 @@ describe("jobs repository (listings)", () => {
     assert.equal((await post("/api/listings/nope/prepare", {})).status, 404);
     assert.equal((await post("/api/listings/nope/assess", {})).status, 404);
   });
+  it("keeps the posting link and the application link; either one marks a duplicate", async () => {
+    const { setApplyLink, Conflict } = await import("../src/listings.ts");
+    const b = await byTitle("Engineer B");
+    const c = await byTitle("Engineer C");
+    assert.equal(setApplyLink(b.id, "  https://boards.test/acme/jobs/42/#form "), "https://boards.test/acme/jobs/42/");
+    const saved = (await list()).find((l) => l.id === b.id)!;
+    assert.equal(saved.url, "https://x.test/b"); // the original stays
+    assert.equal(saved.applyUrl, "https://boards.test/acme/jobs/42/");
+    // another job can't claim the same page, with or without a trailing slash, nor the original posting link
+    assert.throws(() => setApplyLink(c.id, "https://boards.test/acme/jobs/42"), Conflict);
+    assert.throws(() => setApplyLink(c.id, "https://x.test/b"), Conflict);
+    assert.throws(() => setApplyLink(c.id, "file:///etc/passwd"), TypeError);
+    assert.equal(setApplyLink("nope", "https://boards.test/other"), undefined);
+    // a search that later finds the application link is the same job, not a new one
+    const before = (await list()).length;
+    writeFileSync(join(dir, "eligible-jobs.json"), JSON.stringify([feed("Engineer B", "https://x.test/b"), feed("Engineer B (board)", "https://boards.test/acme/jobs/42")]));
+    assert.equal((await list()).length, before);
+    // the same over HTTP
+    assert.equal((await post(`/api/listings/${c.id}/apply-link`, { url: "https://boards.test/acme/jobs/42" })).status, 409);
+    assert.equal((await post(`/api/listings/${c.id}/apply-link`, { url: "nope" })).status, 400);
+    assert.equal((await post("/api/listings/nope/apply-link", { url: "https://boards.test/z" })).status, 404);
+    // pasting the application link as a new job finds the existing one
+    const again = JobListing.parse(await (await post("/api/listings", { url: "https://boards.test/acme/jobs/42" })).json());
+    assert.equal(again.id, b.id);
+    // clearing removes the link; the original stays
+    assert.equal((await post(`/api/listings/${b.id}/apply-link`, { url: "" })).status, 200);
+    assert.equal((await list()).find((l) => l.id === b.id)!.applyUrl, undefined);
+  });
   it("adds a pasted link: reads title, company and date; same link twice is one job", async () => {
     const page = createServer((_, res) =>
       res.writeHead(200, { "content-type": "text/html" }).end(

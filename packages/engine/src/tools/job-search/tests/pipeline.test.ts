@@ -952,3 +952,22 @@ describe("listing fallback in verify", () => {
     assert.equal(classifyVerificationOutcome(fromListing({ ...job, listing: wf }, wf, now, [])), "uncertain");
   });
 });
+
+describe("classifyGeographicScope: region named in the title", () => {
+  const saved = process.env.CANDIDATE_COUNTRY;
+  before(() => { process.env.CANDIDATE_COUNTRY = "Turkey"; });
+  after(() => { saved === undefined ? delete process.env.CANDIDATE_COUNTRY : (process.env.CANDIDATE_COUNTRY = saved); });
+  it("title 'EMEA y Norteamérica' with no location → region open to a Turkey candidate", () => {
+    const r = classifyGeographicScope([], "", "Debes residir en EMEA o Norteamérica.", "Senior Security Engineer EMEA y Norteamérica (100% remoto)");
+    assert.equal(r.scope, "region");
+    assert.equal(r.region, "EMEA");
+  });
+  it("body 'Residir en EMEA o Norteamérica' with no location or title hint → region", () => {
+    const r = classifyGeographicScope([], "", "📍 Residir en EMEA o Norteamérica.", "Senior Security Engineer");
+    assert.equal(r.scope, "region");
+  });
+  it("a bare 'across EMEA' in the body is not a residence requirement", () => {
+    const r = classifyGeographicScope([], "", "Our team is spread across EMEA.", "Engineer");
+    assert.equal(r.scope, "unknown");
+  });
+});

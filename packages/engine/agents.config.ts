@@ -13,13 +13,16 @@ export const agents = {
     extraction: env.TAILOR_EXTRACTION_MODEL ?? "openai/gpt-5.6-luna",
     // The resume-writing pass — quality-critical, worth paying more for.
     tailoring: env.TAILOR_WRITING_MODEL ?? "openai/gpt-5.6-luna",
-    // Fit assessment + qualitative ATS feedback — decent judgment, not top-tier.
+    // Qualitative ATS feedback — decent judgment, not top-tier.
     review: env.TAILOR_REVIEW_MODEL ?? "openai/gpt-5.6-luna",
+    // Fit gate (STRONG_FIT / POSSIBLE_FIT / SKIP) — JEV on the Decisions API, not a chat model.
+    fit: env.TAILOR_FIT_MODEL ?? "typesafe/jev-1.14",
   },
 
-  // Job search (src/tools/job-search/eligibility.ts) — classifies whether
-  // uncertain-location jobs are open to the candidate's country (CANDIDATE_COUNTRY). High volume → fast model.
-  eligibility: env.ELIGIBILITY_MODEL ?? env.OPENROUTER_FAST_MODEL ?? "anthropic/claude-haiku-4.5",
+  // Job search (src/tools/job-search/eligibility.ts) — yes/no on whether
+  // uncertain-location jobs are open to the candidate's country (CANDIDATE_COUNTRY).
+  // Uses a Decisions-API model (JEV), not a chat model: ~$0.04/Mtok, no output tokens.
+  eligibility: env.ELIGIBILITY_MODEL ?? "typesafe/jev-1.14",
 
   // Apply agent (src/agent/answer.ts) — answers application form fields.
   answer: env.ANSWER_MODEL ?? "openai/gpt-5.6-luna",

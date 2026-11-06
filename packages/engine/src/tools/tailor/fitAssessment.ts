@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { JDAnalysis } from "./JDAnalysis.ts";
-import { MODELS, type LLMJson } from "./LLM.ts";
+import { agents } from "../../../agents.config.ts";
+import { askJev, noulYes, type JevAnswer, type JevQuestion } from "../jev.ts";
 
 export const GAP_TYPES = [
   "Language", // programming language, e.g. Go, Rust
@@ -29,78 +30,79 @@ export const fitLines = (fit: Pick<FitClassification, "gaps" | "reasons">): stri
   ...fit.reasons.map((r) => `✓ ${r}`),
 ];
 
+// Below this probability a SKIP verdict is downgraded to POSSIBLE_FIT: wrongly dropping a
+// job costs more than reviewing one extra, and the old prompt also preferred POSSIBLE over SKIP when unsure.
+const SKIP_MIN_PROBABILITY = 0.6;
+const YES_THRESHOLD = 0.5;
+
+// One yes/no question per gap type. JEV returns probabilities, not prose, so a gap's
+// detail is a fixed phrase rather than the free-text specifics the old LLM wrote.
+const GAP_QUESTIONS: Record<Exclude<(typeof GAP_TYPES)[number], "Other">, { ask: string; detail: string }> = {
+  Language: { ask: "The job requires a programming (or spoken) language that does not appear anywhere in the resume.", detail: "Required language not on resume" },
+  Framework: { ask: "The job requires an essential framework, library or tool with no evidence in the resume and no close sibling tool (e.g. Flask vs FastAPI).", detail: "Required framework or tool not on resume" },
+  Skill: { ask: "The job requires an essential technical or professional skill that the resume does not show and that cannot be inferred from the documented experience.", detail: "Required skill not shown on resume" },
+  Domain: { ask: "The job requires deep experience in an industry or problem domain that is completely absent from the resume.", detail: "Required domain not shown on resume" },
+  Seniority: { ask: "The job's seniority or years-of-experience requirement clearly exceeds what the resume shows.", detail: "Seniority or experience requirement not met" },
+  Role: { ask: "The job is a fundamentally different discipline from the candidate's (e.g. product management vs software engineering).", detail: "Different discipline from your background" },
+  Location: { ask: "The job has a hard location, timezone or on-site requirement that the candidate cannot meet.", detail: "Location requirement not met" },
+  "Work authorization": { ask: "The job requires visa, citizenship, work authorization or security clearance that the candidate lacks.", detail: "Work authorization required" },
+  Education: { ask: "The job requires a degree or certification that the resume lacks and that is not replaceable by equivalent practical experience.", detail: "Required degree or certification missing" },
+};
+
+const STRENGTH_QUESTIONS = [
+  { id: "strength_skills", ask: "The resume directly supports most of the job's important required technologies and skills.", reason: "Resume covers the key technologies" },
+  { id: "strength_domain", ask: "The resume shows relevant experience in the job's domain or problem area.", reason: "Relevant domain experience" },
+  { id: "strength_seniority", ask: "The resume's seniority and years of experience match what the job asks for.", reason: "Seniority matches" },
+] as const;
+
+const READING_RULES =
+  "Read requirements exactly as written: \"X or Y\" means either is enough, and an \"or equivalent practical experience\" clause is satisfied by strong relevant experience. Missing documentation is not missing skill: deep adjacent experience implies skills that are likely practiced. Adjacent tools in the same category are interchangeable. Only count a gap if it is essential, not a nice-to-have.";
+
 export const assessFit = async (
   jdAnalysis: JDAnalysis,
   mainResume: string,
   rules: string,
-  callLLMJson: LLMJson,
+  model: string = agents.tailor.fit,
 ): Promise<FitClassification> => {
-  const prompt = `
-    You assess whether a candidate's resume is a fit for a job, using strict rules.
+  const questions: Record<string, JevQuestion> = {
+    fit: {
+      type: "choice",
+      instructions: `How well does the candidate's resume (state.resume) fit the job (state.job), under the candidate's own rules (state.rules)? ${READING_RULES}`,
+      criteria: {
+        STRONG_FIT: "Most of the job's important requirements are directly supported by the resume.",
+        POSSIBLE_FIT: "There is meaningful transferable evidence; any gaps are not fundamental.",
+        SKIP: "A fundamental requirement is unmet: an essential technology or domain is absent, the role is a different discipline, a hard location or work-authorization rule cannot be met, or the seniority requirement clearly exceeds the resume.",
+      },
+    },
+  };
+  for (const [type, q] of Object.entries(GAP_QUESTIONS)) {
+    questions[`gap_${type}`] = { type: "noul", instructions: `Considering state.job and state.resume: ${q.ask} ${READING_RULES}` };
+  }
+  for (const q of STRENGTH_QUESTIONS) {
+    questions[q.id] = { type: "noul", instructions: `Considering state.job and state.resume: ${q.ask}` };
+  }
 
-    CLASSIFICATION RULES (from the candidate's own rules.md):
-    - STRONG_FIT: most important requirements are directly supported by the resume.
-    - POSSIBLE_FIT: meaningful transferable evidence; gaps are not fundamental.
-    - SKIP: a fundamental requirement is unmet. SKIP applies when ANY of these is true:
-        * A required technology, language, or framework has no evidence in the resume
-          (e.g., JD requires Rust, resume has no Rust).
-        * The role is a fundamentally different discipline (e.g., Product Management
-          when the candidate is a Software Engineer).
-        * A required domain is completely absent (e.g., requires 6+ yrs data engineering
-          with ADF/Fabric/T-SQL when the candidate has none of those).
-        * A hard location or work-authorization requirement cannot be met.
-        * The seniority or experience requirement clearly exceeds what the resume shows.
+  const answers = await askJev(model, { job: jdAnalysis, resume: mainResume, rules }, questions);
 
-    IMPORTANT — read requirements exactly as written. Do not strengthen "X or Y" into
-    "X and Y" (e.g., "Bachelor's or Master's degree ... or equivalent practical experience"
-    means ANY ONE of those branches is sufficient — it is not a requirement for both a
-    Bachelor's and a Master's). If a requirement has an "or equivalent practical/professional
-    experience" clause, treat strong relevant experience in the resume as satisfying it.
+  const fit: JevAnswer | undefined = answers["fit"];
+  if (fit?.type !== "choice") throw new Error("Invalid JEV response: missing fit answer");
 
-    IMPORTANT — absence of explicit documentation is NOT the same as absence of skill.
-    If the candidate demonstrates deep adjacent experience (e.g., production cloud infra,
-    K8s, CI/CD, incident response), skills like IAM, rollbacks, or SLOs are likely
-    practiced but undocumented. In that case, prefer POSSIBLE_FIT over SKIP.
-    Reserve SKIP for gaps that are clearly fundamental and cannot be reasonably inferred
-    from the candidate's documented experience.
+  let classification = fit.choice as FitClassification["classification"];
+  if (!["STRONG_FIT", "POSSIBLE_FIT", "SKIP"].includes(classification)) {
+    throw new Error(`Invalid JEV response: unknown fit "${fit.choice}"`);
+  }
+  if (classification === "SKIP" && (fit.probabilities["SKIP"] ?? 0) < SKIP_MIN_PROBABILITY) {
+    classification = "POSSIBLE_FIT";
+  }
 
-    IMPORTANT — adjacent tools in the same category are interchangeable for SKIP purposes.
-    If the JD names one framework/tool and the resume shows a sibling (e.g., Flask vs FastAPI,
-    Terraform vs AWS CDK, GitLab CI vs GitHub Actions/CI/CD, Lambda/API Gateway vs other AWS
-    services, OpenAPI/Swagger vs REST API design), that is a transferable match, not a hard gap.
-    List it under "gaps" if useful but do not SKIP on it alone.
+  const gaps = Object.entries(GAP_QUESTIONS)
+    .map(([type, q]) => ({ type: type as (typeof GAP_TYPES)[number], detail: q.detail, p: noulYes(answers, `gap_${type}`) ?? 0 }))
+    .filter((g) => g.p >= YES_THRESHOLD)
+    .sort((x, y) => y.p - x.p)
+    .slice(0, 4)
+    .map(({ type, detail }) => ({ type, detail }));
 
-    Be strict only on hard gaps: a technology or domain that does not appear anywhere in
-    the resume AND cannot be reasonably inferred from documented experience is a SKIP
-    signal if it is truly essential to the role (not just listed as a nice-to-have).
+  const reasons = STRENGTH_QUESTIONS.filter((q) => (noulYes(answers, q.id) ?? 0) >= YES_THRESHOLD).map((q) => q.reason);
 
-    JOB ANALYSIS (extracted from JD):
-    ${JSON.stringify(jdAnalysis, null, 2)}
-
-    CANDIDATE RESUME:
-    ${mainResume}
-
-    OUTPUT STYLE — short and scannable, the reader skims this in a list:
-    - "gaps": one entry per unmet requirement, at most 4, most important first.
-      "type" must be exactly one of: ${GAP_TYPES.join(", ")}.
-      "detail" is one short phrase, 10 words or fewer, naming the specific thing
-      (e.g. "Go required, none on resume", "8+ years required, resume shows 7",
-      "Must be based in the US", "Fintech/payments domain not shown").
-    - "reasons": at most 3 strengths that support the classification, each 10 words or
-      fewer. No sentences strung together with semicolons; no repeating the gaps.
-    - Use "Location" for any country, timezone or on-site requirement, and "Language"
-      for programming languages (spoken languages also go under "Language").
-
-    Return ONLY valid JSON:
-    {
-      "classification": "STRONG_FIT" | "POSSIBLE_FIT" | "SKIP",
-      "gaps": [{ "type": string, "detail": string }],   // unmet requirements (empty if STRONG_FIT)
-      "reasons": string[]                                // supporting strengths
-    }
-  `;
-
-  return callLLMJson(prompt, FitClassificationSchema, {
-    name: "fit_assessment",
-    model: MODELS.review,
-  });
+  return { classification, reasons, gaps: classification === "STRONG_FIT" ? [] : gaps };
 };

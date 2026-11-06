@@ -1,105 +1,59 @@
 import { agents } from "../../../agents.config.ts";
+import { askJev, noulYes } from "../jev.ts";
 import { candidate } from "./candidate.ts";
 import type { EligibilityResult, VerifiedJob } from "./types.ts";
 
-const BATCH_SIZE = 3;
-const BATCH_DELAY_MS = 3_000;
+const BATCH_SIZE = 5;
+const BATCH_DELAY_MS = 500;
 
-const buildSystemPrompt = (): string => {
-  const { country, city } = candidate();
+const YES_THRESHOLD = 0.5;
+
+const buildQuestion = (): string => {
+  const { country, city, regions } = candidate();
+  const home = country ?? "the candidate's country";
   const where = country ? [city, country].filter(Boolean).join(", ") : undefined;
   const who = where
-    ? `The candidate is a senior software/AI engineer in ${where}. They cannot relocate and have no work authorization outside ${country} — they need EOR or contractor arrangements.`
-    : "The candidate is a senior software/AI engineer working remotely. They cannot relocate and have no work authorization abroad — they need EOR or contractor arrangements.";
-  const home = country ?? "the candidate's country";
-  return `You are a strict job eligibility classifier. ${who}
-
-IMPORTANT: Apply a FAIL-CLOSED approach. Missing restriction is NOT evidence of eligibility.
-
-RESTRICTED — mark if any of these appear:
-- Explicit country requirement: "Remote - US", "Remote (India)", "Brazil only", "must be based in Austria", "[country] only"
-- Authorization requirement: "authorized to work in the US/UK/EU", "work authorization", "security clearance"
-- Physical presence required: "on-site", "primarily on-site", "must relocate", "in-office", "hybrid"
-- Location restricted to specific non-${home} country or region (US, UK, EU, Canada, India, Brazil, LATAM, APAC, etc.)
-- Any phrasing meaning "you must live in [specific country]"
-
-ELIGIBLE — mark ONLY if:
-- Explicitly worldwide, global, anywhere, or "work from anywhere"
-- Explicitly ${home}-inclusive (a region that clearly includes ${home} without excluding it, or ${home} mentioned)
-- The job listing explicitly states broad geographic eligibility
-
-UNCERTAIN — mark if:
-- "Remote" alone with no geographic scope specified (this is NOT eligible — just "remote" says nothing about which countries)
-- Cannot determine geographic eligibility from available text
-- Ambiguous signals (e.g. "Europe" without specifying which countries)
-
-Confidence: use 0.9+ for clear cases, 0.6-0.8 for ambiguous.
-Clamp confidence to range [0.0, 1.0].
-Return ONLY valid JSON: {"status":"eligible"|"restricted"|"uncertain","evidence":"<one sentence>","confidence":0.0-1.0}`;
+    ? `The candidate is a remote software/AI engineer in ${where}. They cannot relocate and have no work authorization outside ${country}; they work as a contractor or through an EOR.`
+    : "The candidate is a remote software/AI engineer. They cannot relocate and have no work authorization abroad; they work as a contractor or through an EOR.";
+  const openRegions = regions.length
+    ? ` Regions that include ${home}: ${regions.join(", ")}. A post naming one of these (alone or alongside others) counts as open.`
+    : "";
+  return `${who} Is this job a remote role the candidate can take from ${home}? Answer yes only if the post is open to Europe/EU/EEA (region-level, no country list), is worldwide/global/anywhere, or names ${home} or a region that includes it.${openRegions} Answer no if it requires a specific other country or region (US, UK, Canada, India, LATAM, APAC, ...), a country list without ${home}, on-site/hybrid/relocation, or work authorization in a specific country. "Remote" alone with no geographic scope is no. If unsure, answer no.`;
 };
 
 export async function checkEligibility(
   job: VerifiedJob,
   model: string = agents.eligibility
 ): Promise<EligibilityResult> {
-  const apiKey = process.env["OPENROUTER_API_KEY"];
-  if (!apiKey) throw new Error("OPENROUTER_API_KEY is required");
-
-  const userContent = [
-    `Title: ${job.title}`,
-    `Company: ${job.company ?? "unknown"}`,
-    `ATS Location: ${(job.jobLocation ?? []).join(", ") || "not specified"}`,
-    `Displayed Location: ${job.displayedLocation ?? "not specified"}`,
-    `Work Mode: ${job.workMode ?? "unknown"}`,
-    `Remote: ${job.remote ?? "unknown"}`,
-    `Geographic Scope (pre-classified): ${job.geographicScope ?? "unknown"}`,
-    `Description excerpt:`,
-    (job.description ?? "").slice(0, 2000),
-    `Visible page text (first 1000 chars):`,
-    (job.visibleText ?? "").slice(0, 1000),
-    job.extraSnippets?.length ? `\nSearch snippets:\n${job.extraSnippets.join("\n")}` : "",
-  ].join("\n");
-
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: "system", content: buildSystemPrompt() },
-        { role: "user", content: userContent },
-      ],
-      temperature: 0,
-      max_tokens: 200,
-    }),
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`OpenRouter error ${response.status}: ${text}`);
-  }
-
-  const data = (await response.json()) as {
-    choices: Array<{ message: { content: string } }>;
+  const state = {
+    title: job.title,
+    company: job.company ?? "unknown",
+    ats_location: (job.jobLocation ?? []).join(", ") || "not specified",
+    displayed_location: job.displayedLocation ?? "not specified",
+    work_mode: job.workMode ?? "unknown",
+    remote: String(job.remote ?? "unknown"),
+    geographic_scope_preclassified: job.geographicScope ?? "unknown",
+    description_excerpt: (job.description ?? "").slice(0, 2000),
+    visible_page_text: (job.visibleText ?? "").slice(0, 1000),
+    search_snippets: job.extraSnippets ?? [],
   };
-  const raw = data.choices[0]?.message?.content?.trim() ?? "";
 
-  try {
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    const cleaned = jsonMatch ? jsonMatch[0] : raw;
-    const parsed = JSON.parse(cleaned) as EligibilityResult;
-    if (!["eligible", "restricted", "uncertain"].includes(parsed.status)) {
-      return { status: "uncertain", evidence: "Invalid LLM response", confidence: 0 };
-    }
-    // Clamp confidence to [0, 1]
-    parsed.confidence = Math.max(0, Math.min(1, Number(parsed.confidence) || 0));
-    return parsed;
-  } catch {
-    return { status: "uncertain", evidence: `Parse error: ${raw.slice(0, 100)}`, confidence: 0 };
+  const answers = await askJev(model, state, {
+    eligible: { type: "noul", instructions: buildQuestion() },
+  });
+  const p = noulYes(answers, "eligible");
+  if (p === undefined) {
+    return { status: "uncertain", evidence: "Invalid JEV response", confidence: 0 };
   }
+
+  const yes = p >= YES_THRESHOLD;
+  const confidence = Math.max(0, Math.min(1, yes ? p : 1 - p));
+  const where = candidate().country ?? "your location";
+  return {
+    status: yes ? "eligible" : "restricted",
+    evidence: `${yes ? `Open to ${where}` : `Not open to ${where}`} (${Math.round(confidence * 100)}% sure)`,
+    confidence,
+  };
 }
 
 export async function checkEligibilityBatch(

@@ -384,6 +384,23 @@ export function classifyGeographicScope(
     return { scope: "region", region: open, evidence };
   }
 
+  // 9b. Same, named in the title ("… EMEA (100% remote)") when the ATS gives no location. Only regions, never "Global".
+  const inTitle = openRegionIn(title);
+  if (inTitle) {
+    evidence.push(`open region in title: ${inTitle}`);
+    return { scope: "region", region: inTitle, evidence };
+  }
+
+  // 9c. A residence/location requirement that names an open region ("Residir en EMEA o Norteamérica", "based in EMEA").
+  // Narrow on purpose: a bare region word in the body (a team "across EMEA") says nothing about who may apply.
+  for (const name of candidate().regions) {
+    const region = findRegion(name)?.pattern.source ?? `\\b${escapeRe(name)}\\b`;
+    if (new RegExp(`(?:resid\\w*|reside|based|located|live|living|ubicad\\w*|basad\\w*)[^.\\n<>]{0,30}?(?:${region})`, "i").test(bodyText)) {
+      evidence.push(`open region in residence requirement: ${name}`);
+      return { scope: "region", region: name, evidence };
+    }
+  }
+
   // 10. Europe/EU the candidate isn't clearly inside → uncertain (LLM judges)
   if (AMBIGUOUS_PATTERNS.some((p) => p.test(openScopeStrings))) {
     evidence.push("ambiguous EU/Europe signal");

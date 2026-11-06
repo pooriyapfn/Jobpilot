@@ -144,6 +144,7 @@ struct JobFooter: View {
         case .generateResume: Task { await store.generateResume(id) }
         case .reviewAnswers: review()
         case .fillInChrome: if let app { Task { await store.fill(app) } }
+        case .applyByHand: if let url = job?.applyLinkURL ?? app?.postingURL { NSWorkspace.shared.open(url) }
         case .viewApplication: store.viewApplication(id)
         }
     }
@@ -155,6 +156,7 @@ struct JobFooter: View {
         case .generateResume: app == nil ? "Tailor your resume, scan the form and draft answers. Uses your OpenRouter key." : "Write a tailored resume for this job. Uses your OpenRouter key."
         case .reviewAnswers: "Some drafted answers need your review before filling"
         case .fillInChrome: "Opens the form filled in your Chrome. You press Submit."
+        case .applyByHand: "No fillable form was found. Opens the posting so you can apply yourself."
         case .viewApplication: "Show this job in Applications"
         }
     }
@@ -165,13 +167,14 @@ struct JobFooter: View {
         case .reassess:
             switch job?.eligibility {
             case .notEligible: "Marked not eligible."
-            default: "Needs a look before you prepare."
+            default: "Needs a look before you apply."
             }
         case .generateResume:
             job?.matchFit == "SKIP" ? "The fit check said this isn't a match. This writes one anyway."
                 : (app == nil ? "Also drafts the form answers." : "Writes a tailored resume.")
         case .reviewAnswers: "Check the highlighted answers first."
         case .fillInChrome: "You review and submit."
+        case .applyByHand: "No form found to fill. Your resume is ready to attach."
         case .viewApplication: "You applied to this job."
         }
     }
