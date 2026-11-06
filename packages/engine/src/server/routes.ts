@@ -5,6 +5,7 @@ import {
   SaveAnswersRequest,
   SaveKnowledgeRequest,
   RemoveScope,
+  SetApplyLinkRequest,
   SetEligibilityRequest,
   SetNoteRequest,
   SetStatusRequest,
@@ -19,13 +20,13 @@ import {
   type OkResponse,
 } from "@jobpilot/contracts";
 import { applyJob } from "../agent/apply.ts";
-import { prepareListing, regenerateResume } from "../agent/listing-actions.ts";
+import { prepareListing, regenerateResume, scanApplyLink } from "../agent/listing-actions.ts";
 import { remember } from "../agent/memory.ts";
 import { config } from "../config.ts";
 import { getApp, listApps, saveApp, setStatus } from "../db.ts";
 import {
-  addListing, assessListing, Busy, eligibleListings, getListing, isBusy, listListings, markApplied, removeListing, runActivity,
-  setEligibility, setNote, type Step,
+  addListing, assessListing, Busy, Conflict, eligibleListings, getListing, isBusy, listListings, markApplied, removeListing, runActivity,
+  setApplyLink, setEligibility, setNote, type Step,
 } from "../listings.ts";
 import { HttpError, type Route } from "./http.ts";
 import type { JobRunner } from "./jobs.ts";
@@ -206,6 +207,25 @@ export const buildRoutes = (runner: JobRunner, opts: { devPage: boolean }): Rout
     method: "POST",
     pattern: "/api/listings/:id/prepare",
     handler: ({ params }) => startActivity(params.id!, "preparing", (step) => prepareListing(params.id!, step)),
+  },
+  {
+    method: "POST",
+    pattern: "/api/listings/:id/apply-link",
+    handler: async ({ params, body }) => {
+      const { url } = SetApplyLinkRequest.parse(await body());
+      if (isBusy(params.id!)) throw new HttpError(409, "Wait for the running action to finish first");
+      let saved: string | null | undefined;
+      try {
+        saved = setApplyLink(params.id!, url);
+      } catch (e) {
+        if (e instanceof TypeError) throw new HttpError(400, e.message);
+        if (e instanceof Conflict) throw new HttpError(409, e.message);
+        throw e;
+      }
+      if (saved === undefined) throw new HttpError(404, "no such job");
+      if (saved === null) return ok(); // cleared
+      return startActivity(params.id!, "scanning", (step) => scanApplyLink(params.id!, step));
+    },
   },
   {
     method: "POST",

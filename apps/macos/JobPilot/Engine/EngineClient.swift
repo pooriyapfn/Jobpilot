@@ -64,6 +64,12 @@ struct EngineClient: Sendable {
         let _: OkResponse = try await send("POST", "/api/listings/\(id)/prepare", body: Empty())
     }
 
+    /// Saves the page with the real form and starts scanning it. An empty `url` clears the saved link.
+    /// Returns at once; the listing's `activity` reports progress. A link another job already uses is refused.
+    func setApplyLink(_ id: String, _ url: String) async throws {
+        let _: OkResponse = try await send("POST", "/api/listings/\(id)/apply-link", body: SetApplyLinkRequest(url: url))
+    }
+
     /// `force`: write the resume even though the fit check said this job isn't a match.
     func regenerateResume(_ id: String, force: Bool = false) async throws {
         let _: OkResponse = try await perform("POST", "/api/listings/\(id)/regenerate-resume", query: force ? [URLQueryItem(name: "force", value: "1")] : [], body: try JSONEncoder().encode(Empty()))

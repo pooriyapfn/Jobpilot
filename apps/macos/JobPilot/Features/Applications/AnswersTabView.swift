@@ -4,12 +4,16 @@ import SwiftUI
 struct AnswersTabView: View {
     @Environment(AppStore.self) private var store
     let app: ApplicationSummary
+    var job: JobListing?
     @Binding var focusField: String?
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                AnswerEditor(app: app, draft: draftBinding, focusField: $focusField)
+                VStack(alignment: .leading, spacing: 16) {
+                    if let job { ApplyLinkSection(job: job) }
+                    AnswerEditor(app: app, draft: draftBinding, focusField: $focusField)
+                }
                     .frame(maxWidth: 720, alignment: .leading)
                     .padding(.horizontal, 24).padding(.vertical, 12)
                     .frame(maxWidth: .infinity, alignment: .center)

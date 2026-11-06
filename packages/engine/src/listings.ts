@@ -27,6 +27,7 @@ type Row = {
   evaluated_at: string | null;
   applied_at: string | null;
   location: string | null;
+  apply_url: string | null;
   user_note: string | null;
   deleted_at: string | null;
 };
@@ -43,6 +44,14 @@ const insert = db.prepare(`
   INSERT OR IGNORE INTO listings (id, url, title, company, description, date_posted, added_at, updated_at,
     eligibility, eligibility_reason, eligibility_source, evaluated_at, applied_at, location)
   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+
+// A job can be known by two links: the posting's own, and the page with the real form (`apply_url`).
+// Either one identifies it, so a search result or pasted link that matches the other is the same job.
+const trimSlash = (u: string) => u.replace(/\/+$/, "");
+const byEitherLink = db.prepare(
+  "SELECT * FROM listings WHERE deleted_at IS NULL AND (rtrim(url, '/') = ?1 OR rtrim(apply_url, '/') = ?1) LIMIT 1",
+);
+const listingForLink = (url: string): Row | undefined => byEitherLink.get(trimSlash(url)) as Row | undefined;
 
 // ── pipeline files → repository ──────────────────────────────────────────────
 
@@ -100,6 +109,8 @@ export const syncListings = (): void => {
     if (seenMtime.get(file) === mtime) continue;
     seenMtime.set(file, mtime);
     for (const j of readFeed(file)) {
+      const known = listingForLink(j.url);
+      if (known && known.url !== j.url) continue; // same job, already known by its application link
       const id = jobId(j.url);
       const v = verdictFromSearch(j, eligibility);
       const stamp = now();
@@ -155,6 +166,7 @@ const toListing = (row: Row): JobListing => {
   return {
     id: row.id,
     url: row.url,
+    applyUrl: row.apply_url ?? undefined,
     title: row.title,
     company: row.company,
     eligibility: row.eligibility,
@@ -245,8 +257,16 @@ const probe = (url: URL) =>
 
 const COULD_NOT_READ = "Couldn't read the page automatically. Open it to check, or try again later.";
 
-const slug = (url: URL) =>
-  decodeURIComponent(url.pathname.split("/").filter(Boolean).pop() ?? url.hostname).replace(/[-_]+/g, " ").trim() || url.hostname;
+// Wellfound-style links carry the job in the query ("?job_listing_slug=4985527-lead-ai-systems-engineer"), not the path.
+const slug = (url: URL) => {
+  const fromQuery = url.searchParams.get("job_listing_slug") ?? url.searchParams.get("slug");
+  const raw = fromQuery ?? url.pathname.split("/").filter(Boolean).pop() ?? url.hostname;
+  const words = decodeURIComponent(raw).replace(/^\d+-/, "").replace(/[-_]+/g, " ").trim();
+  return (fromQuery ? words.replace(/\b\w/g, (c) => c.toUpperCase()) : words) || url.hostname;
+};
+
+const LOGIN_ONLY_HOST = /(^|\.)(wellfound|linkedin)\.com$/;
+const NEEDS_LOGIN = "This site needs your login, so the page couldn't be read. Open it in your browser and set eligibility yourself.";
 
 /** A link you pasted: read the page, take what it says, and rate it. */
 export const addListing = async (rawUrl: string): Promise<{ listing: JobListing; existed: boolean }> => {
@@ -260,13 +280,14 @@ export const addListing = async (rawUrl: string): Promise<{ listing: JobListing;
   url.hash = "";
   const id = jobId(url.href);
 
-  const existing = row(id);
+  const existing = row(id) ?? listingForLink(url.href);
   if (existing) return { listing: toListing(existing), existed: true };
 
   const v = await probe(url);
-  const verdict = await judge(v);
-  const readable = v.fetchStatus === "ok";
-  const title = cleanText(v.title) || slug(url);
+  const loginOnly = LOGIN_ONLY_HOST.test(url.hostname) && v.pageType !== "ats-job" && v.pageType !== "direct-job";
+  const verdict = loginOnly ? ({ eligibility: "review", reason: NEEDS_LOGIN, source: "check", at: now() } as Verdict) : await judge(v);
+  const readable = v.fetchStatus === "ok" && !loginOnly;
+  const title = (!loginOnly && cleanText(v.title)) || slug(url);
   const company = v.company?.trim() || url.hostname.replace(/^(www|jobs|careers)\./, "");
   const stamp = now();
 
@@ -294,6 +315,35 @@ export const assessListing = async (id: string, step: Step): Promise<void> => {
     description = CASE WHEN ? != '' THEN ? ELSE description END, date_posted = COALESCE(?, date_posted) WHERE id = ?`)
     .run(verdict.eligibility, verdict.reason, verdict.source, verdict.at, now(), text, text, iso(v.datePosted) ?? null, id);
   syncApplicationToEligibility(id, verdict.eligibility);
+};
+
+export class Conflict extends Error {}
+
+/**
+ * Saves the page with the real application form next to the posting's own link (which stays, so both count when
+ * checking for duplicates). Returns the saved link, null when cleared, undefined when there's no such job.
+ * Throws TypeError for something that isn't a web link and Conflict when another job already uses that page.
+ */
+export const setApplyLink = (id: string, rawUrl: string): string | null | undefined => {
+  syncListings();
+  const r = row(id);
+  if (!r) return undefined;
+  if (!rawUrl.trim()) {
+    db.prepare("UPDATE listings SET apply_url = NULL, updated_at = ? WHERE id = ?").run(now(), id);
+    return null;
+  }
+  let url: URL;
+  try {
+    url = new URL(rawUrl.trim());
+    if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error();
+  } catch {
+    throw new TypeError("That doesn't look like a web link (http or https).");
+  }
+  url.hash = "";
+  const other = listingForLink(url.href);
+  if (other && other.id !== id) throw new Conflict(`“${other.title}” at ${other.company} already uses that link.`);
+  db.prepare("UPDATE listings SET apply_url = ?, updated_at = ? WHERE id = ?").run(url.href, now(), id);
+  return url.href;
 };
 
 // ── your decisions ───────────────────────────────────────────────────────────

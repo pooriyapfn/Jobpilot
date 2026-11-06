@@ -109,6 +109,7 @@ enum JobActivity: String, Codable, Hashable, Sendable, CaseIterable {
     case preparing
     case regenerating
     case filling
+    case scanning
 }
 
 struct JobEvent: Codable, Hashable, Sendable {
@@ -137,6 +138,7 @@ struct JobInfo: Codable, Hashable, Sendable, Identifiable {
 struct JobListing: Codable, Hashable, Sendable, Identifiable {
     var id: String
     var url: String
+    var applyUrl: String?
     var title: String
     var company: String
     var eligibility: Eligibility
@@ -161,6 +163,7 @@ struct JobListing: Codable, Hashable, Sendable, Identifiable {
 struct JobListingDetail: Codable, Hashable, Sendable, Identifiable {
     var id: String
     var url: String
+    var applyUrl: String?
     var title: String
     var company: String
     var eligibility: Eligibility
@@ -231,6 +234,10 @@ struct SaveAnswersRequest: Codable, Hashable, Sendable {
 
 struct SaveKnowledgeRequest: Codable, Hashable, Sendable {
     var content: String
+}
+
+struct SetApplyLinkRequest: Codable, Hashable, Sendable {
+    var url: String
 }
 
 struct SetEligibilityRequest: Codable, Hashable, Sendable {

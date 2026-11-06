@@ -31,6 +31,11 @@ extension JobListing {
         return url
     }
 
+    var applyLinkURL: URL? {
+        guard let text = applyUrl, let url = URL(string: text), let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme), url.host != nil else { return nil }
+        return url
+    }
+
     var isBusy: Bool { activity != nil }
 
     /// "2 days ago", "today".

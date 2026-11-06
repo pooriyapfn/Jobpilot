@@ -73,6 +73,11 @@ const migrateListings = () => {
 };
 migrateListings();
 
+// The page with the real form, when the posting's own link only redirects to it. `url` stays for duplicate detection.
+if (!(db.prepare("PRAGMA table_info(listings)").all() as { name: string }[]).some((c) => c.name === "apply_url")) {
+  db.exec("ALTER TABLE listings ADD COLUMN apply_url TEXT");
+}
+
 const now = () => new Date().toISOString();
 
 export const saveApp = (app: Application): void => {

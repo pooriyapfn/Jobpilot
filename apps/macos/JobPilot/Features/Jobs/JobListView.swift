@@ -88,12 +88,22 @@ private struct JobListHeader: View {
                 sortMenu
                 Spacer(minLength: 0)
             }
+            if let bulk = store.bulk { bulkBar(bulk) }
             if store.jobFilters.isActive { chips }
             if let error = store.errorMessage { ErrorBanner(text: error) { store.errorMessage = nil } }
         }
         .padding(.horizontal, 16).padding(.top, 10).padding(.bottom, 8)
         .background(.background)
         .overlay(alignment: .bottom) { Divider() }
+    }
+
+    private func bulkBar(_ bulk: BulkProgress) -> some View {
+        HStack(spacing: 8) {
+            ProgressView(value: Double(bulk.done), total: Double(max(bulk.total, 1))).frame(maxWidth: 120)
+            Text("\(bulk.title): \(bulk.done) of \(bulk.total)").font(.callout).foregroundStyle(.secondary).monospacedDigit()
+            Spacer(minLength: 0)
+            Button("Stop") { store.cancelBulk() }.buttonStyle(.link).font(.callout)
+        }
     }
 
     private var countText: String {

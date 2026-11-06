@@ -4,7 +4,7 @@ import Foundation
 enum DetailContext { case jobs, applications }
 
 enum JobAction: Equatable {
-    case analyze, generateResume, reviewAnswers, fillInChrome, viewApplication, reassess
+    case analyze, generateResume, reviewAnswers, fillInChrome, applyByHand, viewApplication, reassess
 
     var title: String {
         switch self {
@@ -12,6 +12,7 @@ enum JobAction: Equatable {
         case .generateResume: "Generate resume"
         case .reviewAnswers: "Review answers"
         case .fillInChrome: "Fill in Chrome"
+        case .applyByHand: "Open & apply by hand"
         case .viewApplication: "View application"
         case .reassess: "Reassess eligibility"
         }
@@ -40,7 +41,10 @@ enum JobFlow {
 
         switch job?.eligibility ?? .eligible {
         case .notEvaluated: return .action(.analyze)
-        case .notEligible, .review: return .action(.reassess)
+        case .notEligible: return .action(.reassess)
+        case .review:
+            // Mixed evidence: you may still go ahead once an application is prepared. Otherwise look again first.
+            guard app != nil else { return .action(.reassess) }
         case .eligible: break
         }
 
@@ -49,6 +53,7 @@ enum JobFlow {
         if !hasResume { return .action(.generateResume) }
         if app.status == .closed { return .unavailable("The posting is closed.") }
         guard app.canApply else { return .unavailable(app.status.label) }
+        if app.status == .manual { return .action(.applyByHand) }
         return .action(unresolvedAnswers > 0 ? .reviewAnswers : .fillInChrome)
     }
 
@@ -58,7 +63,7 @@ enum JobFlow {
         case .fillInChrome: chromeUp ? nil : "Start Chrome first. It's needed to fill the form."
         case .generateResume: hasKey ? nil : "Add OPENROUTER_API_KEY to .env.local in your data folder to generate resumes."
         case .analyze, .reassess: nil
-        case .reviewAnswers, .viewApplication: nil
+        case .reviewAnswers, .viewApplication, .applyByHand: nil
         }
     }
 }
@@ -70,6 +75,7 @@ extension JobActivity {
         case .preparing: "Preparing the application…"
         case .regenerating: "Generating the resume…"
         case .filling: "Filling in Chrome…"
+        case .scanning: "Scanning the application form…"
         }
     }
 
@@ -80,6 +86,7 @@ extension JobActivity {
         case .preparing: "Preparing application"
         case .regenerating: "Generating resume"
         case .filling: "Filling in Chrome"
+        case .scanning: "Scanning application form"
         }
     }
 
@@ -89,6 +96,7 @@ extension JobActivity {
         case .preparing: "Application prepared"
         case .regenerating: "Resume generated"
         case .filling: "Chrome session ended"
+        case .scanning: "Application form scanned"
         }
     }
 }
