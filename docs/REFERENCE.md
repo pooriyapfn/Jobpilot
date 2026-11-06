@@ -106,7 +106,7 @@ npm start / npm run cli     interactive menu: find → prepare → fill → revi
 # job-search
 npm run search              Brave + job boards → data/job-search/jobs.json
 npm run verify              fetch pages, freshness, location, closed postings
-npm run enrich              LLM eligibility check → eligible-jobs.json
+npm run enrich              JEV (typesafe/jev-1.14) eligibility check → eligible-jobs.json
 npm run report              markdown report → data/job-search/reports/
 npm run jobs-dashboard      job-search DB dashboard (port 3000)
 npm run tailor-batch        tailor resumes for all eligible jobs → data/tailor/output/

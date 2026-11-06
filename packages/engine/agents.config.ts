@@ -17,9 +17,10 @@ export const agents = {
     review: env.TAILOR_REVIEW_MODEL ?? "openai/gpt-5.6-luna",
   },
 
-  // Job search (src/tools/job-search/eligibility.ts) — classifies whether
-  // uncertain-location jobs are open to the candidate's country (CANDIDATE_COUNTRY). High volume → fast model.
-  eligibility: env.ELIGIBILITY_MODEL ?? env.OPENROUTER_FAST_MODEL ?? "anthropic/claude-haiku-4.5",
+  // Job search (src/tools/job-search/eligibility.ts) — yes/no on whether
+  // uncertain-location jobs are open to the candidate's country (CANDIDATE_COUNTRY).
+  // Uses a Decisions-API model (JEV), not a chat model: ~$0.04/Mtok, no output tokens.
+  eligibility: env.ELIGIBILITY_MODEL ?? "typesafe/jev-1.14",
 
   // Apply agent (src/agent/answer.ts) — answers application form fields.
   answer: env.ANSWER_MODEL ?? "openai/gpt-5.6-luna",
